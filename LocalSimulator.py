@@ -1,210 +1,255 @@
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
-# --- Numba-optimized Core Functions ---
+# ==============================================================================
+# Numba-JIT Compiled Simulation Core
+#
+# This section contains the performance-critical code. It is designed to
+# work exclusively with NumPy arrays and primitive types for maximum optimization.
+# It does not handle any Python-specific objects like dictionaries or strings.
+# ==============================================================================
 
-@njit(cache=True)
-def _apply_single_qubit_gate(state_vector, gate_matrix, target_qubit):
+@njit
+def apply_gate(state, gate_matrix, target_qubit, num_qubits):
     """
-    Applies a single-qubit gate to the state vector.
-
-    Args:
-        state_vector (np.ndarray): The complex state vector of the quantum system.
-        gate_matrix (np.ndarray): The 2x2 unitary matrix of the gate.
-        target_qubit (int): The qubit index to apply the gate to.
+    Applies a single-qubit gate to the state vector. This operation is
+    optimized for Numba.
     """
-    num_qubits = int(np.log2(state_vector.size))
+    num_states = 1 << num_qubits
     stride = 1 << target_qubit
-    
-    # Iterate through the state vector, applying the gate to pairs of amplitudes.
-    # The outer loops iterate through all states, skipping over the target qubit.
-    # The inner loop applies the 2x2 matrix.
-    for i in range(1 << (num_qubits - 1)):
-        # Create a mask to insert the outer loop index 'i' around the target qubit bit
-        mask = (i << (target_qubit + 1)) | (i & (stride - 1))
-        
-        idx0 = mask
-        idx1 = mask | stride
+    for i in range(0, num_states, 2 * stride):
+        for j in range(stride):
+            idx0 = i + j
+            idx1 = i + j + stride
 
-        v0 = state_vector[idx0]
-        v1 = state_vector[idx1]
+            v0 = state[idx0]
+            v1 = state[idx1]
 
-        state_vector[idx0] = gate_matrix[0, 0] * v0 + gate_matrix[0, 1] * v1
-        state_vector[idx1] = gate_matrix[1, 0] * v0 + gate_matrix[1, 1] * v1
+            state[idx0] = gate_matrix[0, 0] * v0 + gate_matrix[0, 1] * v1
+            state[idx1] = gate_matrix[1, 0] * v0 + gate_matrix[1, 1] * v1
 
-@njit(cache=True)
-def _apply_controlled_gate(state_vector, gate_matrix, control_qubit, target_qubit):
+@njit
+def apply_cnot(state, control_qubit, target_qubit, num_qubits):
     """
-    Applies a controlled two-qubit gate with a 2x2 target matrix.
+    Applies a CNOT gate to the state vector. This is a common 2-qubit gate.
+    """
+    num_states = 1 << num_qubits
+    control_mask = 1 << control_qubit
+    target_mask = 1 << target_qubit
+    
+    for i in range(num_states):
+        # Apply CNOT only if the control bit is 1 and we are at the lower index of the pair
+        if (i & control_mask) and not (i & target_mask):
+            idx0 = i
+            idx1 = i | target_mask
+            
+            # Swap the amplitudes
+            temp = state[idx0]
+            state[idx0] = state[idx1]
+            state[idx1] = temp
+
+
+@njit(parallel=True)
+def _run_circuit_jit(
+    num_qubits,
+    circuit_ops,
+    circuit_qubits,
+    circuit_params_indices,
+    all_parameters,
+    num_shots
+):
+    """
+    The Numba-optimized simulation core. This function is the workhorse.
 
     Args:
-        state_vector (np.ndarray): The complex state vector.
-        gate_matrix (np.ndarray): The 2x2 unitary matrix for the target qubit.
-        control_qubit (int): The control qubit index.
-        target_qubit (int): The target qubit index.
+        num_qubits (int): The number of qubits in the circuit.
+        circuit_ops (np.ndarray): 1D array of integer IDs for each operation.
+        circuit_qubits (np.ndarray): 2D array storing qubit indices for each op.
+        circuit_params_indices (np.ndarray): 1D array mapping an op to its parameter.
+        all_parameters (np.ndarray): 2D array where rows are shots and columns are parameters.
+        num_shots (int): The number of parameter sets to simulate.
     """
-    control_mask = 1 << control_qubit
-    target_stride = 1 << target_qubit
-    
-    # Iterate through all state indices
-    for i in range(state_vector.size):
-        # Apply gate only if control bit is 1
-        if (i & control_mask) != 0:
-            # And if we are at the base of a pair (target bit is 0) to avoid double-processing
-            if (i & target_stride) == 0:
-                idx0 = i
-                idx1 = i | target_stride
-                
-                v0 = state_vector[idx0]
-                v1 = state_vector[idx1]
+    # Define integer constants for gate identification
+    RX_ID = 0
+    CNOT_ID = 1
 
-                state_vector[idx0] = gate_matrix[0, 0] * v0 + gate_matrix[0, 1] * v1
-                state_vector[idx1] = gate_matrix[1, 0] * v0 + gate_matrix[1, 1] * v1
+    # Array to store the result of each shot
+    results = np.zeros(num_shots, dtype=np.float64)
 
-# --- Simulator Class ---
+    # The main loop over shots, parallelized with Numba's prange
+    for shot_idx in prange(num_shots):
+        # Initialize the state vector for this shot to |0...0>
+        state = np.zeros(1 << num_qubits, dtype=np.complex128)
+        state[0] = 1.0 + 0.0j
+
+        # Get the specific parameters for the current shot
+        shot_params = all_parameters[shot_idx]
+
+        # Loop through the circuit operations and apply them
+        for op_idx in range(len(circuit_ops)):
+            op_id = circuit_ops[op_idx]
+
+            if op_id == RX_ID:
+                qubit = circuit_qubits[op_idx, 0]
+                param_idx = circuit_params_indices[op_idx]
+                angle = shot_params[param_idx]
+
+                # Construct the RX gate matrix
+                cos_a = np.cos(angle / 2)
+                sin_a = -1j * np.sin(angle / 2)
+                rx_matrix = np.array(
+                    [[cos_a, sin_a],
+                     [sin_a, cos_a]],
+                    dtype=np.complex128
+                )
+                apply_gate(state, rx_matrix, qubit, num_qubits)
+
+            elif op_id == CNOT_ID:
+                control = circuit_qubits[op_idx, 0]
+                target = circuit_qubits[op_idx, 1]
+                apply_cnot(state, control, target, num_qubits)
+
+        # Example measurement: Calculate the probability of qubit 0 being in state |0>
+        prob_q0_is_0 = 0.0
+        for i in range(1 << num_qubits):
+            if (i & 1) == 0:  # Check if the bit for qubit 0 is 0
+                prob_q0_is_0 += np.abs(state[i])**2
+        results[shot_idx] = prob_q0_is_0
+
+    return results
+
+# ==============================================================================
+# Python-Level Simulator Class
+#
+# This class provides a user-friendly interface. Its main job is to
+# translate Python objects (lists, dicts) into NumPy arrays that the
+# Numba-jitted core can understand and process efficiently.
+# ==============================================================================
 
 class LocalSimulator:
     """
-    A simple quantum circuit simulator that runs on a local machine.
-    Uses Numba to accelerate gate applications.
-
-    The simulator uses a "little-endian" convention where the state vector
-    indices correspond to the integer value of the qubit basis states
-    written as |q_{n-1}...q_1q_0⟩. For example, for 3 qubits, the state
-    |110⟩ corresponds to qubit 2 being 1, qubit 1 being 1, and qubit 0
-    being 0, which is index 1*2^2 + 1*2^1 + 0*2^0 = 6.
+    A quantum circuit simulator that uses a Numba-optimized backend.
     """
-    def __init__(self, num_qubits):
+    def __init__(self):
+        # Map gate names to integer IDs for the Numba core
+        self._gate_map = {'rx': 0, 'cnot': 1}
+
+    def run(self, circuit, parameters):
         """
-        Initializes the simulator.
+        Prepares data and runs the Numba-optimized simulation.
 
         Args:
-            num_qubits (int): The number of qubits in the circuit.
-        """
-        if not isinstance(num_qubits, int) or num_qubits <= 0:
-            raise ValueError("Number of qubits must be a positive integer.")
-        
-        self.num_qubits = num_qubits
-        self.state_vector = np.zeros(1 << num_qubits, dtype=np.complex128)
-        self.state_vector[0] = 1.0
-
-    def _get_qubit_indices(self, qubits):
-        """Helper to validate and return qubit indices."""
-        indices = [qubits] if isinstance(qubits, int) else list(qubits)
-        for q in indices:
-            if not (0 <= q < self.num_qubits):
-                raise ValueError(f"Qubit index {q} is out of bounds for {self.num_qubits} qubits.")
-        return indices
-
-    def h(self, target_qubit):
-        """Applies a Hadamard gate."""
-        q = self._get_qubit_indices(target_qubit)[0]
-        h_matrix = (1 / np.sqrt(2)) * np.array([[1, 1], [1, -1]], dtype=np.complex128)
-        _apply_single_qubit_gate(self.state_vector, h_matrix, q)
-
-    def x(self, target_qubit):
-        """Applies a Pauli-X (NOT) gate."""
-        q = self._get_qubit_indices(target_qubit)[0]
-        x_matrix = np.array([[0, 1], [1, 0]], dtype=np.complex128)
-        _apply_single_qubit_gate(self.state_vector, x_matrix, q)
-
-    def cnot(self, control_qubit, target_qubit):
-        """Applies a Controlled-NOT (CNOT) gate."""
-        c, t = self._get_qubit_indices([control_qubit, target_qubit])
-        if c == t:
-            raise ValueError("Control and target qubits cannot be the same.")
-        
-        x_matrix = np.array([[0, 1], [1, 0]], dtype=np.complex128)
-        _apply_controlled_gate(self.state_vector, x_matrix, c, t)
-        
-    def measure(self):
-        """
-        Measures the state of the system in the computational basis.
-
+            circuit (list): A list of tuples describing the circuit.
+                            e.g., [('rx', 0, 0), ('cnot', 0, 1)]
+            parameters (list): A list of parameter sets. Each set can be a
+                               dict (e.g., {'p0': 0.5}) or a list/array.
         Returns:
-            int: The collapsed state, represented as an integer.
+            np.ndarray: An array containing the simulation results for each shot.
         """
-        probabilities = np.abs(self.state_vector)**2
-        # Normalize to handle potential floating point inaccuracies
-        probabilities /= np.sum(probabilities)
+        if not circuit or not parameters:
+            return np.array([])
+
+        # --- FIX: Convert user-friendly inputs to Numba-friendly NumPy arrays ---
+
+        # 1. Determine circuit properties (num_qubits, num_params)
+        max_qubit_idx = 0
+        max_param_idx = 0
+        for op in circuit:
+            gate_name = op[0]
+            if gate_name == 'rx':
+                max_qubit_idx = max(max_qubit_idx, op[1])
+                max_param_idx = max(max_param_idx, op[2])
+            elif gate_name == 'cnot':
+                max_qubit_idx = max(max_qubit_idx, op[1], op[2])
         
-        # np.random.choice is not supported by Numba, so this part remains in Python
-        result = np.random.choice(1 << self.num_qubits, p=probabilities)
-        return result
+        num_qubits = max_qubit_idx + 1
+        num_params = max_param_idx + 1
 
-    def get_state_vector(self):
-        """Returns a copy of the current state vector."""
-        return self.state_vector.copy()
+        # 2. Process the circuit structure into integer-based NumPy arrays
+        num_ops = len(circuit)
+        circuit_ops = np.zeros(num_ops, dtype=np.int32)
+        circuit_qubits = np.zeros((num_ops, 2), dtype=np.int32)
+        circuit_params_indices = np.zeros(num_ops, dtype=np.int32)
 
-    def __str__(self):
-        return f"LocalSimulator(num_qubits={self.num_qubits})"
+        for i, op in enumerate(circuit):
+            gate_name = op[0]
+            circuit_ops[i] = self._gate_map[gate_name]
+            if gate_name == 'rx':
+                circuit_qubits[i, 0] = op[1]
+                circuit_params_indices[i] = op[2]
+            elif gate_name == 'cnot':
+                circuit_qubits[i, 0] = op[1]
+                circuit_qubits[i, 1] = op[2]
 
-# --- Example Usage ---
+        # 3. Process the parameters into a 2D NumPy float array
+        # This is the core part of the fix, handling the conversion that
+        # prevents the `TypeError: float() argument must be a ... 'dict'`.
+        num_shots = len(parameters)
+        all_parameters_np = np.zeros((num_shots, num_params), dtype=np.float64)
 
-def create_bell_state():
-    """Demonstrates creating a Bell state |Φ+⟩."""
-    print("--- Creating Bell State |Φ+⟩ ---")
-    sim = LocalSimulator(2)
-    
-    # Apply Hadamard to qubit 0
-    sim.h(0)
-    print("State after H(0):", np.round(sim.get_state_vector(), 3))
-    # Expected state for H on q0: 1/sqrt(2)(|00> + |10>)
-    # But due to our |q1q0> convention, h(0) applies I⊗H, giving 1/sqrt(2)(|00> + |01>)
-    
-    # Apply CNOT with qubit 0 as control and 1 as target
-    sim.cnot(0, 1)
-    print("State after CNOT(0, 1):", np.round(sim.get_state_vector(), 3))
-    # This circuit (I⊗H followed by CNOT_0,1) produces the Bell state.
-    # Expected final state: [0.707, 0, 0, 0.707] which is 1/sqrt(2)(|00> + |11>)
-    
-    print("\nPerforming 1000 measurements...")
-    counts = {}
-    for _ in range(1000):
-        measurement = sim.measure()
-        counts[measurement] = counts.get(measurement, 0) + 1
-        
-    print("Measurement results (integer |binary⟩):")
-    for result in sorted(counts.keys()):
-        print(f"  State {result} |{result:02b}⟩: {counts[result]} times")
-    print("-" * 30)
+        if isinstance(parameters[0], dict):
+            for i, p_dict in enumerate(parameters):
+                for j in range(num_params):
+                    key = f'p{j}' # Assumes a convention 'p0', 'p1', etc.
+                    if key in p_dict:
+                        all_parameters_np[i, j] = p_dict[key]
+        else: # Assumes list of lists or numpy array
+            all_parameters_np = np.array(parameters, dtype=np.float64)
 
-def create_ghz_state():
-    """Demonstrates creating a 3-qubit GHZ state."""
-    print("\n--- Creating 3-qubit GHZ State ---")
-    num_qubits = 3
-    sim = LocalSimulator(num_qubits)
-    
-    # Apply H to qubit 2 (the most significant qubit in our |q2q1q0> convention)
-    sim.h(2)
-    
-    # Chain of CNOTs
-    sim.cnot(2, 1)
-    sim.cnot(2, 0)
-    
-    print("Final GHZ state vector:", np.round(sim.get_state_vector(), 3))
-    # Expected state: 1/sqrt(2)(|000> + |111>) -> [0.707, 0, ..., 0, 0.707]
-    
-    print("\nPerforming 1000 measurements...")
-    counts = {}
-    for _ in range(1000):
-        measurement = sim.measure()
-        counts[measurement] = counts.get(measurement, 0) + 1
-        
-    print("Measurement results (integer |binary⟩):")
-    for result in sorted(counts.keys()):
-        print(f"  State {result} |{result:0{num_qubits}b}⟩: {counts[result]} times")
-    print("-" * 30)
+        # Ensure array is 2D for single-parameter cases
+        if all_parameters_np.ndim == 1:
+            all_parameters_np = all_parameters_np.reshape(-1, 1)
+
+        # 4. Call the JIT-compiled function with clean, Numba-compatible data
+        return _run_circuit_jit(
+            num_qubits,
+            circuit_ops,
+            circuit_qubits,
+            circuit_params_indices,
+            all_parameters_np,
+            num_shots
+        )
 
 
+# ==============================================================================
+# Example Usage
+# ==============================================================================
 if __name__ == '__main__':
-    # Numba JIT compilation happens on the first call.
-    # "Warm up" the functions to avoid measuring compilation time in the actual examples.
-    print("Warming up Numba JIT compiler...")
-    warmup_sim = LocalSimulator(2)
-    warmup_sim.h(0)
-    warmup_sim.cnot(0, 1)
-    print("Warm-up complete.\n")
+    # Define a simple 2-qubit circuit to create a Bell state:
+    # - Apply a parameterized rotation (RX) on qubit 0.
+    # - Apply a CNOT gate with qubit 0 as control and qubit 1 as target.
+    my_circuit = [
+        ('rx', 0, 0),   # (gate_name, target_qubit, parameter_index)
+        ('cnot', 0, 1)  # (gate_name, control_qubit, target_qubit)
+    ]
+
+    # Define the parameters for multiple simulation runs (shots).
+    # This list of dictionaries is a user-friendly format that previously
+    # would have caused the error if passed directly to a Numba function.
+    params_as_dicts = [
+        {'p0': 0.0},          # RX(0) is Identity. State -> |00>. Prob(q0=0)=1.0
+        {'p0': np.pi / 2},    # Creates a Bell state. Prob(q0=0)=0.5
+        {'p0': np.pi}         # RX(pi) is X gate. State -> |11>. Prob(q0=0)=0.0
+    ]
+
+    # Create an instance of the simulator
+    simulator = LocalSimulator()
+
+    # Run the simulation
+    results = simulator.run(my_circuit, params_as_dicts)
+
+    # --- Print Results ---
+    print("--- Simulation Results ---")
+    print(f"Circuit: {my_circuit}")
+    print(f"Input Parameters: {params_as_dicts}")
+    print("\nResults (Probability of Qubit 0 being in state |0>):")
+    print("-" * 55)
+    print(f"{'Input Angle (p0)':<20} | {'Expected Prob.':<15} | {'Actual Result':<15}")
+    print("-" * 55)
     
-    create_bell_state()
-    create_ghz_state()
+    expected_results = [1.0, 0.5, 0.0]
+    for i, res in enumerate(results):
+        angle = params_as_dicts[i]['p0']
+        expected = expected_results[i]
+        print(f"{angle:<20.4f} | {expected:<15.4f} | {res:<15.4f}")
+    print("-" * 55)

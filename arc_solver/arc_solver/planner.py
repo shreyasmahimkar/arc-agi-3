@@ -4,9 +4,31 @@ import multiprocessing
 import sys
 import os
 from typing import Any, List, Dict
+from arc_solver.perception import parse_state, get_active_coordinates
 
 # Ensure current directory is in path for dynamic imports
 sys.path.append(os.getcwd())
+
+def sample_random_action(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Helper to sample a random valid action dict for rollouts."""
+    grid, available_actions = parse_state(state)
+    if not available_actions:
+        available_actions = ["ACTION1"]
+        
+    chosen = random.choice(available_actions)
+    action_dict = {"action": chosen}
+    
+    if chosen == "ACTION6":
+        coords = get_active_coordinates(grid)
+        if coords:
+            x, y = random.choice(coords)
+            action_dict["x"] = x
+            action_dict["y"] = y
+        else:
+            action_dict["x"] = 0
+            action_dict["y"] = 0
+            
+    return action_dict
 
 def simulate_rollout(state: Any) -> float:
     """
@@ -28,13 +50,12 @@ def simulate_rollout(state: Any) -> float:
     max_depth = 10
     
     while depth < max_depth:
-        # Dummy ARC action space
-        action = random.choice(["up", "down", "left", "right"])
+        action_dict = sample_random_action(current_state)
         
         try:
-            current_state, reward, done = simulator.step(current_state, action)
+            current_state, reward, done = simulator.step(current_state, action_dict)
             if done:
-                return reward
+                return float(reward)
         except Exception:
             return random.random()
             
@@ -63,11 +84,25 @@ class MCTSPlanner:
         return node
         
     def _expand(self, node: MCTSNode):
-        """Expands a node with possible actions."""
-        actions = ["up", "down", "left", "right"]
-        for action in actions:
-            next_state = {"parent_state": node.state, "action": action}
-            node.children.append(MCTSNode(state=next_state, parent=node, action=action))
+        """Expands a node with possible actions from available_actions."""
+        grid, available_actions = parse_state(node.state)
+        if not available_actions:
+            available_actions = ["ACTION1"]
+            
+        for action_str in available_actions:
+            if action_str == "ACTION6":
+                coords = get_active_coordinates(grid)
+                if not coords:
+                    coords = [(0, 0)]
+                # Dynamically prune search tree by only branching on active non-zero pixels
+                for x, y in coords:
+                    action_dict = {"action": action_str, "x": x, "y": y}
+                    next_state = {"grid": grid.tolist(), "available_actions": available_actions}
+                    node.children.append(MCTSNode(state=next_state, parent=node, action=action_dict))
+            else:
+                action_dict = {"action": action_str}
+                next_state = {"grid": grid.tolist(), "available_actions": available_actions}
+                node.children.append(MCTSNode(state=next_state, parent=node, action=action_dict))
             
     def _backpropagate(self, node: MCTSNode, reward: float):
         """Backpropagates the reward up the tree."""
@@ -76,8 +111,8 @@ class MCTSPlanner:
             node.value += reward
             node = node.parent
             
-    def plan(self, initial_state: Any) -> Any:
-        """Runs the MCTS algorithm across 4 CPU cores and returns the best action."""
+    def plan(self, initial_state: Any) -> List[Dict[str, Any]]:
+        """Runs the MCTS algorithm across 4 CPU cores and returns an array of best action dicts."""
         root = MCTSNode(state=initial_state)
         
         for _ in range(self.num_simulations):
@@ -97,7 +132,7 @@ class MCTSPlanner:
             self._backpropagate(leaf, avg_reward)
             
         if not root.children:
-            return "fallback_action"
+            return [{"action": "ACTION1"}]
             
         best_child = max(root.children, key=lambda n: n.visits)
-        return best_child.action
+        return [best_child.action]

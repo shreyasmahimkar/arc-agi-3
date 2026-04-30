@@ -1,6 +1,38 @@
 import json
 import os
+import random
 from typing import Any, Dict, List
+from arc_solver.perception import parse_state, get_active_coordinates
+
+class Explorer:
+    def __init__(self, memory: 'EpisodicMemory'):
+        self.memory = memory
+        
+    def sample_action(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Reads available_actions from state and strictly samples from them.
+        Implements Coordinate Pruning for ACTION6.
+        """
+        grid, available_actions = parse_state(state)
+        
+        if not available_actions:
+            available_actions = ["ACTION1"]
+            
+        chosen_action_str = random.choice(available_actions)
+        action_dict = {"action": chosen_action_str}
+        
+        if chosen_action_str == "ACTION6":
+            # Coordinate Pruning: Only sample active (non-zero) pixels
+            active_coords = get_active_coordinates(grid)
+            if active_coords:
+                x, y = random.choice(active_coords)
+                action_dict["x"] = x
+                action_dict["y"] = y
+            else:
+                action_dict["x"] = 0
+                action_dict["y"] = 0
+                
+        return action_dict
 
 class EpisodicMemory:
     def __init__(self, filepath: str = "episodic_memory.json"):
@@ -26,8 +58,16 @@ class EpisodicMemory:
         
     def save(self):
         """Saves memory to disk."""
+        class CustomJSONEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if hasattr(obj, 'model_dump'):
+                    return obj.model_dump(mode="json")
+                elif hasattr(obj, 'value'):
+                    return obj.value
+                return super().default(obj)
+                
         with open(self.filepath, 'w') as f:
-            json.dump(self.memory, f, indent=4)
+            json.dump(self.memory, f, indent=4, cls=CustomJSONEncoder)
             
     def clear(self):
         """Clears current memory and deletes the file."""
