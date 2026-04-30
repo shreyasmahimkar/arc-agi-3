@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environments
+.venv/
+.venv*/
+env/
+venv/
+
+# Machine Learning Checkpoints
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+
+# MacOS
+.DS_Store
+
+# Logs
+logs/
+*.log
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+
