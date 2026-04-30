@@ -34,6 +34,14 @@ class Explorer:
                 
         return action_dict
 
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if hasattr(obj, 'model_dump'):
+            return obj.model_dump(mode="json")
+        elif hasattr(obj, 'value'):
+            return obj.value
+        return super().default(obj)
+
 class EpisodicMemory:
     def __init__(self, filepath: str = "episodic_memory.json"):
         self.filepath = filepath
@@ -58,14 +66,6 @@ class EpisodicMemory:
         
     def save(self):
         """Saves memory to disk."""
-        class CustomJSONEncoder(json.JSONEncoder):
-            def default(self, obj):
-                if hasattr(obj, 'model_dump'):
-                    return obj.model_dump(mode="json")
-                elif hasattr(obj, 'value'):
-                    return obj.value
-                return super().default(obj)
-                
         with open(self.filepath, 'w') as f:
             json.dump(self.memory, f, indent=4, cls=CustomJSONEncoder)
             

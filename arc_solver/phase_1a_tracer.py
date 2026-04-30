@@ -1,5 +1,6 @@
 import time
 import arc_agi
+from typing import Any
 from arcengine import GameAction
 
 # Import our three core modules
@@ -7,12 +8,17 @@ from arc_solver.explorer import EpisodicMemory, Explorer
 from arc_solver.world_modeler import WorldModeler, SafeSandbox
 from arc_solver.planner import MCTSPlanner
 
-def map_action_to_enum(action_str: str) -> GameAction:
+def map_action_to_enum(action_val: Any) -> GameAction:
     """
-    Maps string actions from the planner to arcengine.GameAction enums.
-    Attempts to match specific names, otherwise falls back to ACTION1.
+    Maps string actions or integer IDs from the planner to arcengine.GameAction enums.
     """
-    action_upper = action_str.upper()
+    if isinstance(action_val, int):
+        try:
+            return GameAction(action_val)
+        except ValueError:
+            return list(GameAction)[0]
+            
+    action_upper = str(action_val).upper()
     if hasattr(GameAction, action_upper):
         return getattr(GameAction, action_upper)
     elif hasattr(GameAction, f"MOVE_{action_upper}"):
@@ -90,9 +96,15 @@ def main():
     print("[4/5] Planner: Running MCTS to generate an array of actions...")
     planned_actions = []
     
+    # Fix Multiprocessing Crash: Sanitize FrameDataRaw to a pure dictionary
+    # so the 4 CPU pool workers don't crash trying to unpickle arcengine Enums
+    import json
+    from arc_solver.explorer import CustomJSONEncoder
+    clean_state = json.loads(json.dumps(initial_state, cls=CustomJSONEncoder))
+    
     # We'll generate 4 actions to execute in sequence
     for _ in range(4):
-        best_action_array = planner.plan(initial_state=initial_state)
+        best_action_array = planner.plan(initial_state=clean_state)
         planned_actions.extend(best_action_array)
         
     print(f"-> Planned Actions: {planned_actions}")
