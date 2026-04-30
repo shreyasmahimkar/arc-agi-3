@@ -1,8 +1,17 @@
 import json
 import os
 import random
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TypedDict, Optional
 from arc_solver.perception import parse_state, get_active_coordinates
+
+# Strict Action Schema Ruleset
+# ACTION1=Up, ACTION2=Down, ACTION3=Left, ACTION4=Right, 
+# ACTION5=Interact/Rotate, ACTION6=Click (requires x,y coords), 
+# ACTION7=Undo, RESET=Restart. Raw integers are strictly forbidden.
+class ActionDict(TypedDict, total=False):
+    action: str
+    x: Optional[int]
+    y: Optional[int]
 
 class Explorer:
     def __init__(self, memory: 'EpisodicMemory'):
@@ -18,7 +27,12 @@ class Explorer:
         if not available_actions:
             available_actions = ["ACTION1"]
             
-        chosen_action_str = random.choice(available_actions)
+        if "ACTION5" in available_actions and random.random() < 0.8:
+            # Prioritize ACTION5 to observe rotation mechanics (80% chance if available)
+            chosen_action_str = "ACTION5"
+        else:
+            chosen_action_str = random.choice(available_actions)
+            
         action_dict = {"action": chosen_action_str}
         
         if chosen_action_str == "ACTION6":

@@ -109,20 +109,90 @@ def main():
         
     print(f"-> Planned Actions: {planned_actions}")
     
-    # 5. Execute sequence in env and get scorecard
-    print("[5/5] Executing planned sequence...")
-    for action_dict in planned_actions:
-        action_str = action_dict["action"]
-        action_enum = map_action_to_enum(action_str)
-        print(f"Applying action: {action_dict} -> {action_enum}")
+    # ---------------------------------------------------------
+    # EXPLICIT ENUM MAPPER (Bypasses Integer Collisions)
+    # ---------------------------------------------------------
+    enum_map = {
+        "ACTION1": GameAction.ACTION1,
+        "ACTION2": GameAction.ACTION2,
+        "ACTION3": GameAction.ACTION3,
+        "ACTION4": GameAction.ACTION4,
+        "ACTION5": GameAction.ACTION5,
+        "ACTION6": GameAction.ACTION6,
+        "ACTION7": GameAction.ACTION7,
+        "RESET": GameAction.RESET
+    }
+
+    print(f"\nPlan Formulated! Executing {len(planned_actions)} actions...")
+
+    # 5. EXECUTION & REALITY CHECK PHASE
+    for act_dict in planned_actions:
+        time.sleep(0.5) 
         
-        try:
-            execute_action(env, action_dict)
-        except Exception as e:
-            print(f"Failed to execute {action_enum}: {e}")
+        raw_act = act_dict.get("action")
+        
+        # DEFENSIVE PARSING: If the LLM still hallucinates an integer, auto-correct it
+        if isinstance(raw_act, int):
+            act_name = f"ACTION{raw_act}"
+            print(f"Warning: Auto-corrected integer {raw_act} to string '{act_name}'")
+        else:
+            act_name = str(raw_act).upper()
             
-        # Add 0.5s sleep to visually watch the moves render
-        time.sleep(0.5)
+        real_action = enum_map.get(act_name)
+        
+        if not real_action:
+            print(f"CRITICAL Error: Could not map '{raw_act}' to a valid GameAction. Aborting.")
+            break
+
+        # Hard-ban the planner from trying to execute RESETs to cheat the game
+        if real_action == GameAction.RESET:
+            print("ALERT: Planner attempted to execute RESET. Halting to prevent loop.")
+            break
+            
+        try:
+            # Handle Coordinate-based clicking for ACTION6
+            if act_name == "ACTION6":
+                x = int(act_dict.get("x", 0))
+                y = int(act_dict.get("y", 0))
+                print(f"Applying: {act_name} at X:{x}, Y:{y} -> {real_action}")
+                step_result = env.step(real_action, x=x, y=y)
+            else:
+                # Standard simple actions (Move, Rotate, etc.)
+                print(f"Applying: {act_name} -> {real_action}")
+                step_result = env.step(real_action)
+                
+            # Bulletproof Unpacking (Handles 4-tuple, 5-tuple, and single-object returns)
+            if isinstance(step_result, tuple):
+                if len(step_result) == 5:
+                    obs, reward, terminated, truncated, info = step_result
+                    done = terminated or truncated
+                elif len(step_result) == 4:
+                    obs, reward, done, info = step_result
+                else:
+                    print(f"Unexpected return signature length: {len(step_result)}")
+                    done = False
+            else:
+                # API returns a single state object (like FrameDataRaw) instead of a Gym tuple
+                obs = step_result
+                done = False
+                
+                # Dynamically check for a completion signal inside the object
+                if isinstance(obs, dict) and obs.get("state") == "FINISHED":
+                    done = True
+                elif hasattr(obs, "state") and getattr(obs, "state") == "FINISHED":
+                    done = True
+                elif hasattr(obs, "done") and getattr(obs, "done"):
+                    done = True
+                
+            if done:
+                print("\n🎉 LEVEL COMPLETE! Architecture successfully adapted.")
+                break
+                
+        except Exception as e:
+            # Catch true API Errors
+            print(f"API Error during step execution: {type(e).__name__} - {e}")
+            env.step(GameAction.RESET)
+            break
         
     print("\n=== Execution Complete ===")
     print("Scorecard Efficiency:")

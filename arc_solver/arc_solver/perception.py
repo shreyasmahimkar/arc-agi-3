@@ -7,15 +7,25 @@ def parse_state(state: Any) -> Tuple[np.ndarray, List[str]]:
     Parses the ARC environment state dictionary.
     Isolates the grid as a numpy array and extracts available_actions.
     Prevents MCTS float conversion errors by ensuring proper dictionary parsing.
+    Strictly casts all integer actions to 'ACTIONX' strings to prevent Enum collisions.
     """
     if isinstance(state, dict):
         grid_data = state.get("grid", [])
         grid = np.array(grid_data) if grid_data else np.array([])
-        available_actions = state.get("available_actions", [])
+        raw_actions = state.get("available_actions", [])
     else:
         grid = np.array(state) if state is not None else np.array([])
-        available_actions = []
+        raw_actions = []
         
+    available_actions = []
+    for act in raw_actions:
+        if isinstance(act, int):
+            # Map integer IDs to explicit string names
+            name = "RESET" if act == 0 else f"ACTION{act}"
+            available_actions.append(name)
+        else:
+            available_actions.append(str(act).upper())
+            
     return grid, available_actions
 
 def get_active_coordinates(grid: np.ndarray, background_color: int = 0) -> List[Tuple[int, int]]:

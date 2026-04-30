@@ -3,8 +3,17 @@ import random
 import multiprocessing
 import sys
 import os
-from typing import Any, List, Dict
+from typing import Any, List, Dict, TypedDict, Optional
 from arc_solver.perception import parse_state, get_active_coordinates
+
+# Strict Action Schema Ruleset
+# ACTION1=Up, ACTION2=Down, ACTION3=Left, ACTION4=Right, 
+# ACTION5=Interact/Rotate, ACTION6=Click (requires x,y coords), 
+# ACTION7=Undo, RESET=Restart. Raw integers are strictly forbidden.
+class ActionDict(TypedDict, total=False):
+    action: str
+    x: Optional[int]
+    y: Optional[int]
 
 # Ensure current directory is in path for dynamic imports
 sys.path.append(os.getcwd())
@@ -15,7 +24,12 @@ def sample_random_action(state: Dict[str, Any]) -> Dict[str, Any]:
     if not available_actions:
         available_actions = ["ACTION1"]
         
-    chosen = random.choice(available_actions)
+    if "ACTION5" in available_actions and random.random() < 0.8:
+        # Prioritize ACTION5 to observe rotation mechanics during rollouts
+        chosen = "ACTION5"
+    else:
+        chosen = random.choice(available_actions)
+        
     action_dict = {"action": chosen}
     
     if chosen == "ACTION6":
@@ -48,20 +62,22 @@ def simulate_rollout(state: Any) -> float:
     current_state = state
     depth = 0
     max_depth = 10
+    last_reward = 0.0
     
     while depth < max_depth:
         action_dict = sample_random_action(current_state)
         
         try:
             current_state, reward, done = simulator.step(current_state, action_dict)
+            last_reward = float(reward)
             if done:
-                return float(reward)
+                return last_reward
         except Exception:
             return random.random()
             
         depth += 1
         
-    return 0.5  # Neutral reward
+    return last_reward  # Return the gradient heuristic from the final state reached
 
 class MCTSNode:
     def __init__(self, state: Any, parent=None, action=None):
