@@ -1,0 +1,47 @@
+[
+    {
+        "state": {
+            "grid": [
+                1,
+                2
+            ]
+        },
+        "action": "up",
+        "next_state": {
+            "grid": [
+                2,
+                1
+            ]
+        }
+    },
+    {
+        "state": {
+            "grid": [
+                1,
+                2
+            ]
+        },
+        "action": "up",
+        "next_state": {
+            "grid": [
+                2,
+                1
+            ]
+        }
+    },
+    {
+        "state": {
+            "grid": [
+                1,
+                2
+            ]
+        },
+        "action": "up",
+        "next_state": {
+            "grid": [
+                2,
+                1
+            ]
+        }
+    }
+]
