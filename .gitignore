@@ -25,3 +25,5 @@ logs/
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
 
+# Environment Variables
+.env
