@@ -1,0 +1,23 @@
+# Multimodal ARC-AGI-3 Solver
+
+A multi-agent reasoning pivot integrating image-based multimodal state representation for ARC-AGI-3.
+
+## Execution Guide
+
+To ensure correct import resolution and virtual environment dependencies, run these commands from the root workspace directory.
+
+### 1. Populate the Episodic Memory Buffer
+Run the tracer bullet to step through the environment. This will automatically convert the integer ARC grids into RGB images using PIL and save them along with the transition metadata into the `multimodel_solver/memory_buffer/` directory.
+
+```bash
+# Run from the root workspace directory
+PYTHONPATH=. .venv312/bin/python multimodel_solver/phase_1a_tracer.py
+```
+
+### 2. Test the Gemini Payload Generation
+Run the multimodal prompter script. This script will read the generated `episodic_memory.json`, encode the saved RGB images as base64 visual tokens, and successfully construct the multimodal payload ready to be sent to the Gemini API.
+
+```bash
+# Run from the root workspace directory
+PYTHONPATH=. .venv312/bin/python multimodel_solver/multimodal_prompter.py
+```
