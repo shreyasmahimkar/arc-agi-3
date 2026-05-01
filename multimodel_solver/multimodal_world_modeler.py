@@ -83,6 +83,16 @@ Here is the code you wrote:
 Here is the error log or state diff from the validation:
 {error_log}
 
+Here is the standardized action interface for ARC-AGI-3 games to help you understand what the actions mean:
+- `RESET`: Initialize or restart the game/level state
+- `ACTION1`: Simple action - semantically mapped to UP
+- `ACTION2`: Simple action - semantically mapped to DOWN
+- `ACTION3`: Simple action - semantically mapped to LEFT
+- `ACTION4`: Simple action - semantically mapped to RIGHT
+- `ACTION5`: Simple action - interact, select, rotate, attach/detach, execute, etc.
+- `ACTION6`: Complex action requiring x, y coordinates (0-63 range)
+- `ACTION7`: Simple action - Undo
+
 CRITICAL RULES FOR CORRECTION:
 1. ENFORCE TYPING: The `grid` input is a standard Python `List[List[int]]` (a 2D list of integers). It is NOT a NumPy array, and it is NOT an RGB image. Do not attempt NumPy broadcasting or tuple-based list indexing.
 2. SYNTAX REMINDER: To access or modify a cell, you MUST use standard nested list indexing like `grid[y][x]`, NOT `grid[y, x]`.

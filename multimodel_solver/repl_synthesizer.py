@@ -47,13 +47,14 @@ class REPLSynthesizer:
             grid_out_expected = next_state_raw.get("grid")
             action = action_dict.get("action")
             
+            import copy
             if grid_in is None or grid_out_expected is None:
                 continue
                 
             try:
-                # Some simulators might mutate the input grid, so we pass a copy if needed, 
-                # but let's see how it behaves directly first.
-                grid_out_actual = predict_next_state(grid_in, action)
+                # MUST pass a deep copy so the LLM's code doesn't permanently mutate the memory buffer grids!
+                grid_in_copy = copy.deepcopy(grid_in)
+                grid_out_actual = predict_next_state(grid_in_copy, action)
             except Exception as e:
                 return f"Exception during execution on transition {i} (Action: {action}):\n{traceback.format_exc()}"
                 

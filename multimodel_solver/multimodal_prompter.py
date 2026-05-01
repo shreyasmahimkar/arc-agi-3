@@ -61,9 +61,20 @@ def build_gemini_payload(memory_filepath: str = "multimodel_solver/memory_buffer
         
     text_prompt = """Analyze these visual transitions. Write a Python function `def predict_next_state(grid, action):` that models the latent physics and rules of this environment.
 
+Here is the standardized action interface for ARC-AGI-3 games to help you understand what the actions mean:
+- `RESET`: Initialize or restart the game/level state
+- `ACTION1`: Simple action - semantically mapped to UP
+- `ACTION2`: Simple action - semantically mapped to DOWN
+- `ACTION3`: Simple action - semantically mapped to LEFT
+- `ACTION4`: Simple action - semantically mapped to RIGHT
+- `ACTION5`: Simple action - interact, select, rotate, attach/detach, execute, etc.
+- `ACTION6`: Complex action requiring x, y coordinates (0-63 range)
+- `ACTION7`: Simple action - Undo
+
 CRITICAL RULES:
 1. ENFORCE TYPING: The `grid` input is a standard Python `List[List[int]]` (a 2D list of integers). It is NOT a NumPy array, and it is NOT an RGB image. Do not attempt NumPy broadcasting or tuple-based list indexing.
 2. SYNTAX REMINDER: To access or modify a cell, you MUST use standard nested list indexing like `grid[y][x]`, NOT `grid[y, x]`.
+3. ACTION PARAMETER: The `action` parameter is a simple string containing the action name (e.g., "ACTION1", "ACTION2"). It is NOT a dictionary.
 """
     
     # Append the final prompt
