@@ -996,6 +996,10 @@ def find_game_source_and_class(game_id, arc_env=None):
 # ==================== CNN MODULES ====================
 
 class CBAM(nn.Module):
+    """
+    Convolutional Block Attention Module.
+    An attention mechanism for the CNN that helps the network focus on important spatial and channel features.
+    """
     def __init__(s, ch, r=16):
         super().__init__()
         s.fc1 = nn.Linear(ch, max(ch // r, 4))
@@ -1037,6 +1041,10 @@ class ActionEffectAttention(nn.Module):
 
 
 class ForgeNet(nn.Module):
+    """
+    The core Convolutional Neural Network used by the RL agent fallback.
+    It takes frame features as input and outputs action probabilities (actor) and spatial click probabilities.
+    """
     def __init__(s, in_ch=26, g=64):
         super().__init__()
         s.g = g
@@ -1094,6 +1102,11 @@ def fast_objects(frame, bg):
 # ==================== AGENT ====================
 
 class MyAgent(Agent):
+    """
+    The main Agent class that integrates the BFS Solver and the CNN-based RL fallback.
+    It first attempts to solve each level using exact search (BFS), and if that times out or fails,
+    it falls back to a learning-based exploration strategy using the CNN.
+    """
     MAX_ACTIONS = float('inf')
     _MAX_FRAMES = 10
 
