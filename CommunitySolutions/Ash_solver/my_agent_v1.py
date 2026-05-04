@@ -1,20 +1,24 @@
 # =====================================================================
-# FORGE v20 — v19 base + Architectural RL Upgrades
+# FORGE v19 — v18 base + 4 targeted bug fixes
 #
-# Fixes applied on top of v19:
+# Fixes applied on top of v18:
 #
-# FIX 5 (Reward Squashing): Swapped BCE loss for MSE loss in _train() 
-#         to properly model raw Q-values instead of compressing them
-#         through a sigmoid.
+# FIX 1: _visited_hashes was never initialized in __init__ — reward
+#         signal was broken: always gave +1.5 for ANY hash change,
+#         never penalizing loops. Now properly tracks and deduplicates.
 #
-# FIX 6 (Bellman Backups): Buffer now tracks s_next. Q-learning uses
-#         targets = r + gamma * max(Q(s_next)) to enable sequential 
-#         planning instead of acting like a contextual bandit.
+# FIX 2: CLTI frame extraction used get_pixels() which is inconsistent
+#         with _raw() (which reads frame[-1] from perform_action).
+#         Now uses perform_action result frames throughout, so injected
+#         expert demos have correct state representations.
 #
-# FIX 7 (Color Augmentation): Added an 'augment' flag to _frame_to_tensor()
-#         to randomly permute the 16 one-hot color planes (while pinning
-#         the background color) to prevent the CNN from overfitting to
-#         specific palette indices.
+# FIX 3: BFS hidden retry used 3 RESET calls instead of 2, landing
+#         in a different initial state than the first pass scan,
+#         causing the retry to search from a mismatched baseline.
+#
+# FIX 4: Epsilon always reset to 0.15 on level change even when BFS
+#         already solved the level. Now only resets if BFS failed,
+#         preserving learned exploration for CNN fallback.
 # =====================================================================
 import copy
 import glob
@@ -269,7 +273,7 @@ class BFSSolver:
             if hidden_fields:
                 logger.info(f"BFS L{level_idx}: RETRY with hidden fields: {hidden_fields}")
 
-                # FIX 3: Use exactly 2 RESET calls
+                # FIX 3: Use exactly 2 RESET calls (not 3) to match the first pass baseline
                 game2 = self.game_cls()
                 game2.set_level(level_idx)
                 game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
@@ -499,6 +503,11 @@ class ActionEffectAttention(nn.Module):
         return s.v_proj(ctx)
 
 class ForgeNet(nn.Module):
+    """
+    ForgeNet is a Convolutional Neural Network (CNN) model designed to evaluate the game state
+    and predict the next best action. It uses multiple convolutional layers to process the 
+    spatial grid of the game and an attention mechanism (CBAM) to focus on important features.
+    """
     def __init__(s, in_ch=26, g=64):
         super().__init__()
         s.g=g
@@ -536,6 +545,11 @@ def fast_objects(frame, bg):
 # ==================== AGENT ====================
 
 class MyAgent(Agent):
+    """
+    The main agent class that integrates the BFS Solver and the CNN-based RL fallback.
+    It first attempts to solve each level using exact search (BFS), and if that times out or fails,
+    it falls back to a learning-based exploration strategy using the CNN.
+    """
     MAX_ACTIONS = float('inf')
     _MAX_FRAMES = 10
 
@@ -557,7 +571,9 @@ class MyAgent(Agent):
         s._ckpt_hash=None; s._unproductive=0; s._undo_avail=False
         s._eps=0.15; s._eps_min=0.03; s._eps_decay=0.9997
         s._prev_objs=None; s._obj_moved=0
+        # FIX 1: Initialize _visited_hashes so _reward() deduplication works correctly
         s._visited_hashes = set()
+        # BFS solver
         s._bfs = None
         s._bfs_solution = None
         s._bfs_step = 0
@@ -574,6 +590,7 @@ class MyAgent(Agent):
     def _raw(s, fd): return np.array(fd.frame, dtype=np.int64)[-1]
 
     def _init_bfs(s):
+        """Initialize BFS solver on first call."""
         src, cls = find_game_source_and_class(s.game_id, s.arc_env)
         if src:
             s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=180)
@@ -586,7 +603,9 @@ class MyAgent(Agent):
             logger.warning(f"BFS: game source not found for {s.game_id}")
 
     def _try_bfs_solve(s, level_idx):
-        if s._bfs is None: return None
+        """Try to solve current level with BFS, using previous solution for transfer."""
+        if s._bfs is None:
+            return None
         prev_sol = s._bfs.solutions.get(level_idx - 1) if level_idx > 0 else None
         sol = s._bfs.solve_level(level_idx, prev_solution=prev_sol)
         if sol:
@@ -597,30 +616,11 @@ class MyAgent(Agent):
 
     def _tensor(s, fd):
         frame = s._raw(fd)
-        return s._frame_to_tensor(frame)
-
-    # ==========================================
-    # FIX 7: Added 'augment' flag to dynamically 
-    # shuffle colors (excluding background)
-    # ==========================================
-    def _frame_to_tensor(s, frame, augment=False):
         oh=torch.zeros(16,64,64,dtype=torch.float32)
         oh.scatter_(0,torch.from_numpy(frame).unsqueeze(0),1)
         cnt=np.bincount(frame.flatten(),minlength=16)
-        bg=int(cnt.argmax());mx=max(cnt.max(),1)
-        
-        if augment:
-            perm = np.arange(16)
-            non_bg = [c for c in range(16) if c != bg]
-            np.random.shuffle(non_bg)
-            idx = 0
-            for c in range(16):
-                if c != bg:
-                    perm[c] = non_bg[idx]
-                    idx += 1
-            oh = oh[perm]
-
-        bg_m=(frame==bg).astype(np.float32)
+        s._bg=int(cnt.argmax());mx=max(cnt.max(),1)
+        bg_m=(frame==s._bg).astype(np.float32)
         rar=np.zeros((64,64),np.float32)
         for c in range(16):
             if cnt[c]>0:rar[frame==c]=1.0-cnt[c]/mx
@@ -629,8 +629,6 @@ class MyAgent(Agent):
         rp=np.linspace(0,1,64,dtype=np.float32).reshape(64,1).repeat(64,1)
         cp=np.linspace(0,1,64,dtype=np.float32).reshape(1,64).repeat(64,0)
         aug=torch.from_numpy(np.stack([bg_m,rar,edge,rp,cp]))
-        
-        # Calculate diffs using historical frames
         d1=torch.zeros(3,64,64,dtype=torch.float32)
         for i,prev in enumerate(reversed(list(s.fhist))):
             if i>=3:break
@@ -639,7 +637,7 @@ class MyAgent(Agent):
         h=list(s.fhist)
         if len(h)>=2:d2[0]=torch.from_numpy((h[-1]!=h[-2]).astype(np.float32))
         if len(h)>=4:d2[1]=torch.from_numpy((h[-2]!=h[-4]).astype(np.float32))
-        
+        s.fhist.append(frame.copy())
         return torch.cat([oh,aug,d1,d2],0).to(s.device)
 
     def _detect_template(s, frame):
@@ -659,6 +657,10 @@ class MyAgent(Agent):
         return mask
 
     def _reward(s, prev_raw, curr_raw, prev_h, curr_h):
+        # FIX 1: Use s._visited_hashes (now properly initialized) for deduplication.
+        # Previously _visited_hashes was never created, so the hasattr() check always
+        # returned True (not hasattr = True) meaning every state change got +1.5,
+        # causing the CNN to loop endlessly without penalty.
         mask=np.ones((64,64),dtype=bool);mask[:2]=False;mask[62:]=False
         diff=(prev_raw!=curr_raw)&mask;changed=np.any(diff)
         r=0.0
@@ -667,7 +669,7 @@ class MyAgent(Agent):
                 r += 1.5
                 s._visited_hashes.add(curr_h)
             else:
-                r += 0.2
+                r += 0.2  # small reward for revisiting — not zero, avoids cliff in sparse games
         else:
             r -= 0.1
         if changed:r+=0.5
@@ -694,9 +696,7 @@ class MyAgent(Agent):
             al=al+mask
             if not a6:cl=cl+torch.full_like(cl,float('-inf'))
         if s._wm is not None:cl=cl+torch.log(s._wm.to(s.device).clamp(min=0.01))
-        
-        # Softmax sampling
-        ap=torch.softmax(al/temp, dim=0); cp=torch.softmax(cl/temp, dim=0)/(s.G*s.G)
+        ap=torch.sigmoid(al/temp);cp=torch.sigmoid(cl/temp)/(s.G*s.G)
         allp=torch.cat([ap,cp]);sm=allp.sum()
         if sm<1e-8:allp=torch.ones_like(allp)/len(allp)
         else:allp=allp/sm
@@ -721,43 +721,39 @@ class MyAgent(Agent):
         if choices:return random.choice(choices)-1,None
         return 0,None
 
-    # ==========================================
-    # FIX 5 & 6: Bellman Backup via max(Q) targets 
-    # & MSE Loss instead of BCE on sigmoid
-    # ==========================================
+    def _frame_to_tensor(s, frame):
+        oh=torch.zeros(16,64,64,dtype=torch.float32)
+        oh.scatter_(0,torch.from_numpy(frame).unsqueeze(0),1)
+        cnt=np.bincount(frame.flatten(),minlength=16)
+        bg=int(cnt.argmax());mx=max(cnt.max(),1)
+        bg_m=(frame==bg).astype(np.float32)
+        rar=np.zeros((64,64),np.float32)
+        for c in range(16):
+            if cnt[c]>0:rar[frame==c]=1.0-cnt[c]/mx
+        pad=np.pad(frame,1,mode='edge')
+        edge=((frame!=pad[:-2,1:-1])|(frame!=pad[2:,1:-1])|(frame!=pad[1:-1,:-2])|(frame!=pad[1:-1,2:])).astype(np.float32)
+        rp=np.linspace(0,1,64,dtype=np.float32).reshape(64,1).repeat(64,1)
+        cp=np.linspace(0,1,64,dtype=np.float32).reshape(1,64).repeat(64,0)
+        aug=torch.from_numpy(np.stack([bg_m,rar,edge,rp,cp]))
+        zeros=torch.zeros(5,64,64,dtype=torch.float32)
+        return torch.cat([oh,aug,zeros],0)
+
     def _train(s):
         if len(s.buf)<s.bsz:return
         indices=np.random.choice(len(s.buf),s.bsz,replace=False)
         batch=[s.buf[i] for i in indices]
-        
-        # Feed augmented tensors to prevent color overfitting
-        states=torch.stack([s._frame_to_tensor(e['s'], augment=True) for e in batch])
-        next_states=torch.stack([s._frame_to_tensor(e['s_next'], augment=True) for e in batch])
-        
+        states=torch.stack([s._frame_to_tensor(e['s']).to(s.device) for e in batch])
         acts=torch.tensor([e['a'] for e in batch],dtype=torch.long,device=s.device)
         rews=torch.tensor([e['r'] for e in batch],dtype=torch.float32,device=s.device)
-        
+        # rews=torch.sigmoid(rews);
         s.opt.zero_grad()
-        
-        # Current state Q-values
         logits=s.net(states)
         acts_c=acts.clamp(0,logits.size(1)-1)
-        q_vals=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
-        
-        # Next state maximum Q-values (Bellman Eq)
-        with torch.no_grad():
-            next_logits = s.net(next_states)
-            max_next_q = next_logits.max(1)[0]
-            # gamma = 0.95
-            targets = rews + 0.95 * max_next_q
-            
-        # Switch from BCE to MSE for raw Q-value regression
-        loss = F.mse_loss(q_vals, targets)
-        
-        # Keep a light L2 penalty on logits to prevent unbounded divergence
-        loss = loss + 1e-4 * logits.pow(2).mean()
-        
-        loss.backward(); s.opt.step()
+        sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
+        # loss=F.binary_cross_entropy_with_logits(sel,rews)
+        loss = F.mse_loss(sel, rews)
+        p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
+        loss.backward();s.opt.step()
 
     def _get_aem_tensors(s):
         if len(s._aem_diffs)<2:return None,None,None
@@ -779,15 +775,18 @@ class MyAgent(Agent):
 
             # ===== LEVEL CHANGE =====
             if lvl != s.cl:
+                # Init BFS solver on first level
                 if not s._bfs_tried:
                     s._bfs_tried = True
                     s._init_bfs()
 
+                # Try BFS for this level
                 s._bfs_solution = None
                 s._bfs_step = 0
                 if s._bfs:
                     s._try_bfs_solve(lvl)
 
+                # Init CNN fallback
                 s.buf.clear(); s.buf_h.clear()
                 s.net = ForgeNet(s.IN, s.G).to(s.device)
                 for wp in ['/kaggle/input/forge-pretrained-weights/pretrained_weights.pt',
@@ -806,12 +805,17 @@ class MyAgent(Agent):
                 s._wd=False;s._wm=None
                 s._aem_diffs.clear();s._aem_actions.clear();s._aem_rewards.clear()
                 s._prev_objs=None;s._obj_moved=0;s._ckpt_hash=None;s._unproductive=0
+                # FIX 1: Reset visited hashes on every level change
                 s._visited_hashes = set()
-                
+                # FIX 4: Only reset epsilon if BFS didn't solve this level.
+                # If BFS solved it, keep current eps so CNN fallback (if needed)
+                # benefits from accumulated exploration knowledge.
                 if not s._bfs_solution:
                     s._eps = 0.15
 
                 # CLTI — inject BFS demos from previous level into CNN replay buffer
+                # FIX 2: Use perform_action frame[-1] consistently with _raw(),
+                # instead of get_pixels() which returns a different format.
                 if lvl > 0 and s._bfs and s._bfs.solutions.get(lvl - 1):
                     prev_sol = s._bfs.solutions[lvl - 1]
                     try:
@@ -820,22 +824,17 @@ class MyAgent(Agent):
                         replay_game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
                         r0 = replay_game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
                         if r0.frame:
+                            # Start from the post-reset frame, consistent with _raw()
                             prev_frame = np.array(r0.frame[-1], dtype=np.int64)
                             for act_id, data in prev_sol:
                                 ai = ActionInput(id=GameAction.from_id(act_id), data=data) if data else ActionInput(id=GameAction.from_id(act_id))
                                 result = replay_game.perform_action(ai, raw=True)
                                 action_idx = (act_id - 1) if act_id <= 5 else (
                                     5 + data.get('y', 0) * 64 + data.get('x', 0) if data else 0)
-                                
-                                # Evaluate the next frame to satisfy Bellman structure
+                                s.buf.append({'s': prev_frame.copy(), 'a': action_idx, 'r': 2.0})
+                                # Advance prev_frame using the action result, not get_pixels()
                                 if result.frame:
-                                    next_frame = np.array(result.frame[-1], dtype=np.int64)
-                                else:
-                                    next_frame = prev_frame.copy()
-                                    
-                                s.buf.append({'s': prev_frame.copy(), 'a': action_idx, 'r': 2.0, 's_next': next_frame.copy()})
-                                prev_frame = next_frame.copy()
-                                
+                                    prev_frame = np.array(result.frame[-1], dtype=np.int64)
                             if len(s.buf) >= s.bsz:
                                 for _ in range(min(20, len(s.buf) // s.bsz)):
                                     s._train()
@@ -846,7 +845,6 @@ class MyAgent(Agent):
             # ===== RESET =====
             if lf.state in [GameState.NOT_PLAYED, GameState.GAME_OVER]:
                 s.pt=None;s.pai=None;s.pr=None;s.ph=None
-                s.fhist.clear() # added to prevent stale histories
                 a=GameAction.RESET;a.reasoning="reset";return a
 
             # ===== BFS SOLUTION EXECUTION =====
@@ -864,7 +862,6 @@ class MyAgent(Agent):
                 return sel
 
             # ===== CNN FALLBACK =====
-            s.fhist.append(s._raw(lf).copy()) # Ensure history tracks correctly prior to tensor evaluation
             tensor = s._tensor(lf)
             raw = s._raw(lf)
             ch = hashlib.md5(raw.tobytes()).hexdigest()[:16]
@@ -877,8 +874,7 @@ class MyAgent(Agent):
                 eh=hashlib.md5(s.pr.tobytes()[:1000]+str(s.pai).encode()).hexdigest()[:16]
                 if eh not in s.buf_h:
                     r=s._reward(s.pr,raw,'',ch)
-                    # FIX 6: Append s_next logic during live execution
-                    s.buf.append({'s':s.pr.copy(),'a':s.pai,'r':r, 's_next':raw.copy()})
+                    s.buf.append({'s':s.pr.copy(),'a':s.pai,'r':r})
                     s.buf_h.add(eh)
                     if changed:
                         s._aem_diffs.append(diff_map)

@@ -20,7 +20,7 @@ def main():
     print("==============================================")
     
     # 4. Initializer to change the game. Start with ls20.
-    GAME_NAME = 'ls20'
+    GAME_NAME = 'ar25'
     
     # Ensure it only gets games from local dir
     env_dir = os.path.join(repo_root, 'arc-prize-2026-arc-agi-3', 'environment_files')
