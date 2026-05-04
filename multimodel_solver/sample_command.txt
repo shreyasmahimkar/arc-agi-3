@@ -21,3 +21,5 @@ Run the multimodal prompter script. This script will read the generated `episodi
 # Run from the root workspace directory
 PYTHONPATH=. .venv312/bin/python multimodel_solver/multimodal_prompter.py
 ```
+
+export GEMINI_API_KEY="[ENCRYPTION_KEY]" PYTHONPATH=. .venv312/bin/python multimodel_solver/phase_1a_tracer.py
