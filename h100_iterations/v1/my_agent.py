@@ -670,8 +670,10 @@ class MyAgent(Agent):
         if s._wm is not None:cl=cl+torch.log(s._wm.to(s.device).clamp(min=0.01))
         
         ap=torch.softmax(al/temp, dim=0); cp=torch.softmax(cl/temp, dim=0)/(s.G*s.G)
+        if torch.isnan(ap).any(): ap=torch.zeros_like(ap)
+        if torch.isnan(cp).any(): cp=torch.zeros_like(cp)
         allp=torch.cat([ap,cp]);sm=allp.sum()
-        if sm<1e-8:allp=torch.ones_like(allp)/len(allp)
+        if sm<1e-8 or torch.isnan(sm):allp=torch.ones_like(allp)/len(allp)
         else:allp=allp/sm
         idx=np.random.choice(len(allp),p=allp.cpu().numpy())
         if idx<5:return idx,None
