@@ -1,5 +1,7 @@
 # Ash Solver
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyasmahimkar/arc-agi-3/blob/main/CommunitySolutions/Ash_solver/colab_runner.ipynb)
+
 This folder contains the `Ash_solver` solution, which implements a hybrid approach using a Breadth-First Search (BFS) combined with a Convolutional Neural Network (CNN) fallback.
 
 ## Contents
@@ -8,6 +10,12 @@ This folder contains the `Ash_solver` solution, which implements a hybrid approa
 - `play_game.py`: A local execution harness that loads the `MyAgent` class and plays an ARC-AGI environment game (e.g., `ls20`) step-by-step so a human can observe the agent's progress.
 
 ## How to Run
+
+### In Google Colab
+You can run this agent directly in Google Colab without any local setup:
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyasmahimkar/arc-agi-3/blob/main/CommunitySolutions/Ash_solver/colab_runner.ipynb)
+
+### Local Execution
 
 1. Ensure your virtual environment is activated and the ARC-AGI-3-Agents dependencies are installed.
 2. Run the `play_game.py` script:

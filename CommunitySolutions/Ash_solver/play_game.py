@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(repo_root, 'arc_solver'))
 sys.path.insert(0, os.path.join(repo_root, 'arc-prize-2026-arc-agi-3', 'ARC-AGI-3-Agents'))
 
 import arc_agi
-from arcengine import GameAction, GameState
+from arcengine import GameAction, GameState, ActionInput
 
 from my_agent import MyAgent
 
@@ -157,19 +157,22 @@ def main():
                         x, y = int(match.group(1)), int(match.group(2))
                 
                 print(f"Applying click at X: {x}, Y: {y}")
-                step_result = env.step(action, x=x, y=y)
+                step_result = env.step(GameAction.ACTION6, data={'x': int(x), 'y': int(y)})
             else:
                 print(f"Applying action: {act_name}")
-                step_result = env.step(action)
+                if isinstance(action, GameAction):
+                    step_result = env.step(action)
+                else:
+                    step_result = env.step(GameAction.from_id(act_id))
                 
         except Exception as e:
             print(f"Error applying step: {e}")
             # Try to recover by passing action.id if it's an object instead of enum
             try:
                 if act_id == 6:
-                    step_result = env.step(action.id, x=x, y=y)
+                    step_result = env.step(GameAction.ACTION6, data={'x': int(x), 'y': int(y)})
                 else:
-                    step_result = env.step(action.id)
+                    step_result = env.step(GameAction.from_id(act_id))
             except Exception as e2:
                 print(f"Recovery failed: {e2}")
                 break
