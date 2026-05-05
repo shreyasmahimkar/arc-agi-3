@@ -5,7 +5,7 @@ import glob
 from pathlib import Path
 
 # Add arc_solver to path for arc_agi
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.insert(0, os.path.join(repo_root, 'arc_solver'))
 sys.path.insert(0, os.path.join(repo_root, 'arc-prize-2026-arc-agi-3', 'ARC-AGI-3-Agents'))
 
