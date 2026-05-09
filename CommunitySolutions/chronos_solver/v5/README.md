@@ -23,3 +23,14 @@ Based on the performance of v4, we identified key areas where the agent's cognit
 ### 3. Active Puzzle Memory (State Monologue)
 - **Problem**: The agent struggles to piece together complex sequences (e.g., hit switch A to open door B).
 - **Solution**: Maintain a `_puzzle_monologue` list. Every time Gemini is polled, its semantic response is appended to this list. This running log is injected into the A* heuristics, ensuring the agent retains a short-term memory of recent structural changes in the puzzle.
+
+### 4. Long-Term Game Intuition (Memory Persistence)
+- **Problem**: In `v4`, cross-level learning relies on the `_global_semantic_cache` to store truths like goal shapes. However, this is implemented as an in-memory instance variable (`self._global_semantic_cache`). When the agent terminates or receives a completely new game, this cache is wiped. It does not learn "generally" across different game sessions because the intuition is never written to disk.
+- **Solution (Proposed)**: To avoid starting from scratch on new games while preventing overfitting, the framework needs to externalize this long-term memory (e.g., saving successful heuristics or semantic mappings to a persistent JSON/Vector store). Currently, no persistent file-based long-term memory is implemented.
+
+
+
+```bash
+source .venv312/bin/activate
+python CommunitySolutions/chronos_solver/v5/play_game.py
+```
