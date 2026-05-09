@@ -500,8 +500,13 @@ class MyAgent(Agent):
         random.seed(seed); np.random.seed(seed%(2**32-1)); torch.manual_seed(seed%(2**32-1))
         
         # Long-Term Game Intuition (Memory Persistence)
-        s._memory_file = os.path.join(os.path.dirname(__file__), "v6_long_term_memory.json")
-        s._global_semantic_cache = {"mechanics": {}, "current_goal": None}
+        s._memory_file = os.path.join(os.path.dirname(__file__), "v7_long_term_memory.json")
+        s._global_semantic_cache = {
+            "game_name": s.game_id,
+            "level_completed": "-1",
+            "winning_strategy": "",
+            "generalized_mechanics_learned": []
+        }
         if os.path.exists(s._memory_file):
             try:
                 with open(s._memory_file, 'r') as f:
@@ -756,7 +761,7 @@ class MyAgent(Agent):
                 except Exception as e:
                     logger.warning(f"Failed to load image {img_path}: {e}")
             
-            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'unknown_objects' (e.g. [{'type': 'green cross', 'x': 20, 'y': 20}]). Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"unknown_objects\": []}."
+            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'unknown_objects' (e.g. [{'type': 'green cross', 'x': 20, 'y': 20}]). CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"unknown_objects\": []}."
             
             # Cross-Level Context Injection
             if hasattr(self, '_global_semantic_cache') and self._global_semantic_cache:
@@ -795,7 +800,7 @@ class MyAgent(Agent):
                 
                 # Persist to long-term memory
                 try:
-                    with open(getattr(self, '_memory_file', os.path.join(os.path.dirname(__file__), "v6_long_term_memory.json")), 'w') as f:
+                    with open(getattr(self, '_memory_file', os.path.join(os.path.dirname(__file__), "v7_long_term_memory.json")), 'w') as f:
                         json.dump(self._global_semantic_cache, f)
                 except Exception as e:
                     logger.warning(f"Failed to save long-term memory: {e}")
@@ -882,7 +887,10 @@ class MyAgent(Agent):
                 if goal_pos and np.sum(diff_mask) > 0:
                     ys, xs = np.where(diff_mask)
                     px, py = int(np.mean(xs)), int(np.mean(ys))
-                    dist = abs(px - goal_pos[0]) + abs(py - goal_pos[1])
+                    # v7 Safety Clamp
+                    gx = min(63, max(0, int(goal_pos[0])))
+                    gy = min(63, max(0, int(goal_pos[1])))
+                    dist = abs(px - gx) + abs(py - gy)
                     priority = depth + dist
                     score += (100 - dist)
                 
@@ -893,7 +901,7 @@ class MyAgent(Agent):
                 # Intrinsic Curiosity: Hypothesis Testing
                 unknowns = s._cached_semantics.get('unknown_objects', []) if hasattr(s, '_cached_semantics') else []
                 if unknowns and depth > 3 and score < 50:
-                    closest_unknown = min([abs(px - u.get('x', 0)) + abs(py - u.get('y', 0)) for u in unknowns if 'x' in u and 'y' in u], default=float('inf'))
+                    closest_unknown = min([abs(px - min(63, max(0, int(u.get('x', 0))))) + abs(py - min(63, max(0, int(u.get('y', 0))))) for u in unknowns if 'x' in u and 'y' in u], default=float('inf'))
                     if closest_unknown < float('inf'):
                         score += (80 - closest_unknown)
                         priority = -score
@@ -914,6 +922,60 @@ class MyAgent(Agent):
 
             # ===== LEVEL CHANGE =====
             if lvl != s.cl:
+                # v7 Post-Level Retrospective
+                if s.cl >= 0:
+                    try:
+                        logger.info(f"V7 Retrospective: Analyzing Level {s.cl} completion...")
+                        from google import genai
+                        import glob
+                        from PIL import Image
+                        
+                        env_path = os.path.join(os.path.dirname(__file__), '.env')
+                        if os.path.exists(env_path):
+                            with open(env_path) as f:
+                                for line in f:
+                                    if line.startswith('GEMINI_API_KEY='):
+                                        os.environ['GEMINI_API_KEY'] = line.strip().split('=', 1)[1].strip('"\'')
+                                        
+                        api_key = os.environ.get("GEMINI_API_KEY")
+                        if api_key:
+                            client = genai.Client(api_key=api_key)
+                            img_dir = os.path.join(os.path.dirname(__file__), "images")
+                            search_pattern = os.path.join(img_dir, f"level_{s.cl:02d}_step_*.png")
+                            existing_images = sorted(glob.glob(search_pattern))
+                            
+                            step_val = max(1, len(existing_images) // 10)
+                            selected_images = existing_images[::step_val][-10:]
+                            
+                            recap_prompt = "You successfully solved this level. Look at these frames from start to finish. What were the rules of this level? How did you win? What objects did you interact with? Reply ONLY with a JSON object like {\"winning_strategy\": \"I moved right...\", \"generalized_mechanics_learned\": [\"green is fuel\"]}"
+                            
+                            content = [recap_prompt]
+                            for img_path in selected_images:
+                                try:
+                                    img = Image.open(img_path)
+                                    img.load()
+                                    content.append(img)
+                                except: pass
+                                
+                            if len(content) > 1:
+                                response = client.models.generate_content(
+                                    model='gemini-3.1-pro-preview',
+                                    contents=content
+                                )
+                                import json
+                                import re
+                                json_str = re.search(r'\{.*\}', response.text, re.DOTALL)
+                                if json_str:
+                                    recap = json.loads(json_str.group())
+                                    s._global_semantic_cache["level_completed"] = str(s.cl)
+                                    s._global_semantic_cache["winning_strategy"] = recap.get("winning_strategy", "")
+                                    s._global_semantic_cache["generalized_mechanics_learned"] = recap.get("generalized_mechanics_learned", [])
+                                    with open(s._memory_file, 'w') as f:
+                                        json.dump(s._global_semantic_cache, f)
+                                    logger.info(f"V7 Recap Saved: {s._global_semantic_cache}")
+                    except Exception as e:
+                        logger.warning(f"V7 Retrospective failed: {e}")
+
                 # Init BFS solver on first level
                 if not s._bfs_tried:
                     s._bfs_tried = True
