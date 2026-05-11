@@ -857,7 +857,7 @@ class MyAgent(Agent):
                 
                 # Persist to long-term memory
                 try:
-                    with open(getattr(self, '_memory_file', os.path.join(os.path.dirname(__file__), "v7_long_term_memory.json")), 'w') as f:
+                    with open(getattr(self, '_memory_file', os.path.join(os.path.dirname(__file__), "v8_long_term_memory.json")), 'w') as f:
                         json.dump(self._global_semantic_cache, f)
                 except Exception as e:
                     logger.warning(f"Failed to save long-term memory: {e}")
