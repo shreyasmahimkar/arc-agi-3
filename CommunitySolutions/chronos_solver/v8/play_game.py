@@ -20,7 +20,7 @@ from arcengine import GameAction, GameState, ActionInput
 from my_agent import MyAgent
 
 # Setup logging
-log_file = os.path.join(os.path.dirname(__file__), "v7_run.log")
+log_file = os.path.join(os.path.dirname(__file__), "v8_run.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",

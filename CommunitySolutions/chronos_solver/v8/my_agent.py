@@ -545,6 +545,12 @@ class MyAgent(Agent):
 
     def _update_scratchpad(s, plan_text, timestamp, reset_for_level=False):
         import json
+        from datetime import datetime, timezone, timedelta
+        
+        if isinstance(timestamp, (int, float)):
+            est = timezone(timedelta(hours=-5), 'EST')
+            timestamp = datetime.fromtimestamp(timestamp, est).strftime('%Y-%m-%d %I:%M:%S %p %Z')
+
         sp_file = os.path.join(os.path.dirname(__file__), "v8_scratchpad.json")
         data = {}
         if os.path.exists(sp_file):
@@ -889,7 +895,7 @@ class MyAgent(Agent):
             
         visited = set()
         pq = []
-        h0 = hashlib.md5(f0.tobytes()).hexdigest()[:16]
+        h0 = hashlib.md5(f0[:55, :].tobytes()).hexdigest()[:16]
         visited.add(h0)
         
         s._pq_count = getattr(s, '_pq_count', 0)
@@ -917,15 +923,15 @@ class MyAgent(Agent):
                 if not r.frame:
                     continue
                 f = np.array(r.frame[-1])
-                h = hashlib.md5(f.tobytes()).hexdigest()[:16]
-                if h in visited:
+                h_crop = hashlib.md5(f[:55, :].tobytes()).hexdigest()[:16]
+                if h_crop in visited:
                     continue
                     
                 # EMB: Mask out known fatal states
-                if hasattr(s, '_fatal_hashes') and h in s._fatal_hashes:
+                if hasattr(s, '_fatal_hashes') and h_crop in s._fatal_hashes:
                     continue
                     
-                visited.add(h)
+                visited.add(h_crop)
                 
                 new_hist = hist + [(act_id, data)]
                 
@@ -1186,6 +1192,26 @@ class MyAgent(Agent):
                     # Fallback if swarm returns nothing
                     avail = getattr(lf, 'available_actions', None) or []
                     choices = [a for a in avail if 1 <= (a.value if hasattr(a, 'value') else int(a)) <= 5]
+                    
+                    # Safe fallback: don't step into fatal states
+                    game = getattr(s.arc_env, '_game', None)
+                    if game and hasattr(s, '_fatal_hashes') and s._fatal_hashes:
+                        import copy
+                        safe_choices = []
+                        for a in choices:
+                            g2 = copy.deepcopy(game)
+                            try:
+                                aid = a.value if hasattr(a, 'value') else int(a)
+                                r = g2.perform_action(ActionInput(id=GameAction.from_id(aid)), raw=True)
+                                if r.frame:
+                                    f_c = np.array(r.frame[-1])[:55, :]
+                                    hc = hashlib.md5(f_c.tobytes()).hexdigest()[:16]
+                                    if hc not in s._fatal_hashes:
+                                        safe_choices.append(a)
+                            except: pass
+                        if safe_choices:
+                            choices = safe_choices
+                            
                     if choices:
                         sel = GameAction.from_id((random.choice(choices).value if hasattr(random.choice(choices), 'value') else int(random.choice(choices))))
                         sel.reasoning = "swarm_critic:fallback_random"

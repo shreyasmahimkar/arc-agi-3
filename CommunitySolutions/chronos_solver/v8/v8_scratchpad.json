@@ -1,0 +1,14 @@
+{
+  "ls20": {
+    "1": [
+      {
+        "timestamp": "2026-05-11 03:12:52 PM EST",
+        "plan": "LEVEL STARTED"
+      },
+      {
+        "timestamp": "2026-05-11 03:13:59 PM EST",
+        "plan": "DIED. Recorded fatal trajectory state ec932ca53d52f9c6 to avoid repeating."
+      }
+    ]
+  }
+}
