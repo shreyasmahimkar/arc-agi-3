@@ -543,6 +543,31 @@ class MyAgent(Agent):
         s._bfs_step = 0  # current step in solution
         s._bfs_tried = False
 
+    def _log_level_solving(s, event, details):
+        import json
+        log_file = os.path.join(os.path.dirname(__file__), "v8_level_solving_log.json")
+        log_data = {}
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    log_data = json.load(f)
+            except: pass
+        
+        gn = s.game_id
+        cl = str(s.cl)
+        if gn not in log_data: log_data[gn] = {}
+        if cl not in log_data[gn]: log_data[gn][cl] = []
+        
+        log_data[gn][cl].append({
+            "timestamp": time.time(),
+            "event": event,
+            "details": details
+        })
+        try:
+            with open(log_file, 'w') as f:
+                json.dump(log_data, f, indent=2)
+        except: pass
+
     def append_frame(s, f):
         s.frames.append(f)
         if len(s.frames) > s._MAX_FRAMES: s.frames = s.frames[-s._MAX_FRAMES:]
@@ -733,6 +758,7 @@ class MyAgent(Agent):
         try:
             # pyrefly: ignore [missing-import]
             from google import genai
+            from google.genai import types
             import os
             # pyrefly: ignore [missing-import]
             from PIL import Image
@@ -773,7 +799,7 @@ class MyAgent(Agent):
                 except Exception as e:
                     logger.warning(f"Failed to load image {img_path}: {e}")
             
-            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 6) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 7) Optional: an array of 'walkable_colors' (integer 0-15) if you can deduce them from the long term memory. CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"walkable_colors\": []}."
+            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) The number of 'lives' or 'health' icons. 2) The 'fuel' level if visible. 3) Any 'target_shape'. 4) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 5) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 6) An array of 'sub_goals' in sequential order representing the exact path to victory (e.g. [{'target': 'blue switch', 'x': 10, 'y': 20}, {'target': 'red exit', 'x': 50, 'y': 50}]). CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"sub_goals\": []}."
             
             # Cross-Level Context Injection
             if hasattr(self, '_global_semantic_cache') and self._global_semantic_cache:
@@ -792,8 +818,24 @@ class MyAgent(Agent):
 
             response = client.models.generate_content(
                 model='gemini-3.1-pro-preview',
-                contents=content
+                contents=content,
+                config=types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(
+                        include_thoughts=True,
+                        thinking_level="HIGH"
+                    )
+                )
             )
+            
+            thought_text = ""
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if part.thought:
+                        thought_text += part.text + "\n"
+            
+            logger.info(f"== GEMINI DEEP THINK ==\n{thought_text}\n=========================")
+            self._log_level_solving("Thinking Loop", {"thought": thought_text})
+            
             logger.info(f"== GEMINI RAW RESPONSE ==\n{response.text}\n=========================")
             import json
             import re
@@ -801,8 +843,13 @@ class MyAgent(Agent):
             if json_str:
                 goal = json.loads(json_str.group())
                 logger.info(f"== GEMINI PARSED JSON ==\n{json.dumps(goal, indent=2)}\n========================")
-                self._cached_goal = (goal.get('x'), goal.get('y'))
                 self._cached_semantics = goal
+                self._sub_goal_queue = goal.get('sub_goals', [])
+                if self._sub_goal_queue:
+                    self._cached_goal = (self._sub_goal_queue[0].get('x'), self._sub_goal_queue[0].get('y'))
+                    self._log_level_solving("Goal Update", {"active_sub_goal": self._sub_goal_queue[0], "queue": self._sub_goal_queue})
+                else:
+                    self._cached_goal = (goal.get('x'), goal.get('y'))
                 
                 # Update global cache with found semantics
                 if not hasattr(self, '_global_semantic_cache'):
@@ -1086,6 +1133,7 @@ class MyAgent(Agent):
                     fatal_state = s._hash_history[-2]
                     s._fatal_hashes.add(fatal_state)
                     logger.info(f"EMB: Recorded fatal trajectory state {fatal_state} to episodic memory!")
+                    s._log_level_solving("Session Memory: Death", {"fatal_state": fatal_state, "note": "Agent died, recording to persistent session memory to avoid repeating."})
                 # Force vision poll on reset to get new life count
                 s._steps_since_vision = 999 
                 s._hash_history.clear()

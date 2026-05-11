@@ -47,6 +47,32 @@ While v6 successfully implemented multi-frame tracking and spatial chain-of-thou
 
 By implementing these retrospectives, the agent essentially "writes a wiki" about the game as it plays, ensuring that an early-game BFS victory isn't wasted, but instead leveraged as vital context for complex late-game levels.
 
+## Flaws Identified in v7.0 (The Disconnect)
+
+1. **The Timer Bar Heuristic Skew**:
+   - **Observation**: A* tracked the player by averaging all pixels that changed between frames (`np.mean(xs, ys)`).
+   - **The Flaw**: Because the green timer bar at the bottom updated every step, the calculated player position was artificially dragged downwards. A* lost track of where the player actually was, causing it to wander aimlessly because the distance-to-goal calculation was broken.
+2. **Moth-to-Flame Traps (Toxic Curiosity)**:
+   - **Observation**: Gemini lumped everything into a generic `unknown_objects` array.
+   - **The Flaw**: The A* "Intrinsic Curiosity" logic aggressively rewarded exploring *all* unknown objects. Consequently, the agent was explicitly incentivized to run head-first into deadly traps just to see what would happen.
+3. **Broken Silent Reset Detector**:
+   - **Observation**: The anti-amnesia system hashed the *entire* screen to detect if the agent warped back to the start.
+   - **The Flaw**: When the agent died, it lost a life (changing the blue UI icons). Because the UI changed, the hash never matched the start-of-level hash, preventing the agent from recognizing and logging the fatal state.
+4. **Ignored Long-Term Memory**:
+   - **Observation**: The agent successfully wrote strategies to long-term memory.
+   - **The Flaw**: The A* planner only consumed raw `(x, y)` coordinates, completely ignoring the semantic insights (e.g. "red means death") during execution.
+
+## Implementation Plan for v7.1 (Bridging the Gap)
+
+1. **Masked, Precision Player Tracking**:
+   - **Solution**: The A* planner now actively masks out the bottom UI region (`diff_mask[55:, :] = False`). It tracks *only* the player's movement in the maze, restoring the integrity of the A* distance heuristic.
+2. **Semantic Hazard Avoidance**:
+   - **Solution**: Gemini's JSON schema has been upgraded to explicitly separate `interactive_objects` from `hazards`. The A* planner now applies a massive penalty (`score -= 500`) to paths that venture near hazards. Curiosity is safely restricted to interactives.
+3. **Robust Local-Hash Reset Detection**:
+   - **Solution**: The Silent Reset Detector now crops the image before hashing (`f_crop = s._raw(lf)[:55, :]`), ignoring the life counters entirely. The agent can now flawlessly recognize when it dies and log the fatal trajectory.
+4. **Bridging LLM Reasoning and Symbolic A***:
+   - **Solution**: Long-Term Memory insights are no longer just text. By parsing them into actionable `hazards` arrays via Gemini, the A* planner dynamically alters its cost function based on high-level semantic rules.
+
 
 ```bash
 source .venv312/bin/activate
