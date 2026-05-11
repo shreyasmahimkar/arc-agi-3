@@ -721,8 +721,10 @@ class MyAgent(Agent):
             
         self._steps_since_vision = 0
         try:
+            # pyrefly: ignore [missing-import]
             from google import genai
             import os
+            # pyrefly: ignore [missing-import]
             from PIL import Image
             import io
             
@@ -761,7 +763,7 @@ class MyAgent(Agent):
                 except Exception as e:
                     logger.warning(f"Failed to load image {img_path}: {e}")
             
-            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'unknown_objects' (e.g. [{'type': 'green cross', 'x': 20, 'y': 20}]). CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"unknown_objects\": []}."
+            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 6) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 7) Optional: an array of 'walkable_colors' (integer 0-15) if you can deduce them from the long term memory. CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"walkable_colors\": []}."
             
             # Cross-Level Context Injection
             if hasattr(self, '_global_semantic_cache') and self._global_semantic_cache:
@@ -782,11 +784,13 @@ class MyAgent(Agent):
                 model='gemini-3.1-pro-preview',
                 contents=content
             )
+            logger.info(f"== GEMINI RAW RESPONSE ==\n{response.text}\n=========================")
             import json
             import re
             json_str = re.search(r'\{.*\}', response.text, re.DOTALL)
             if json_str:
                 goal = json.loads(json_str.group())
+                logger.info(f"== GEMINI PARSED JSON ==\n{json.dumps(goal, indent=2)}\n========================")
                 self._cached_goal = (goal.get('x'), goal.get('y'))
                 self._cached_semantics = goal
                 
@@ -823,6 +827,8 @@ class MyAgent(Agent):
         f0 = np.array(lf.frame[-1])
         
         goal_pos = s._get_multimodal_goal(lf)
+        
+        logger.info(f"== SWARM PLANNER INIT ==\nGoal Pos from Gemini: {goal_pos}\nInteractives: {s._cached_semantics.get('interactive_objects', []) if hasattr(s, '_cached_semantics') else 'None'}\nHazards: {s._cached_semantics.get('hazards', []) if hasattr(s, '_cached_semantics') else 'None'}\n========================")
         
         avail = getattr(lf, 'available_actions', None) or []
         actions = []
@@ -880,8 +886,9 @@ class MyAgent(Agent):
                     logger.info(f"Swarm Planner: FOUND WINNING PATH in {len(new_hist)} steps!")
                     return new_hist
                 
-                score = np.sum(f0 != f) + depth * 0.5
                 diff_mask = (f0 != f)
+                diff_mask[55:, :] = False  # Step 1 Fix: Ignore UI/timer bar at the bottom
+                score = np.sum(diff_mask) + depth * 0.5
                 priority = -score
                 
                 if goal_pos and np.sum(diff_mask) > 0:
@@ -895,16 +902,31 @@ class MyAgent(Agent):
                     score += (100 - dist)
                 
                 if score > best_score:
+                    logger.info(f"[A* Update] Action Path: {[a[0] for a in new_hist]} -> New Best Score: {score:.1f} | Depth: {depth+1} | Dist to Goal: {dist if 'dist' in locals() else 'N/A'}")
                     best_score = score
                     best_hist = new_hist
                     
-                # Intrinsic Curiosity: Hypothesis Testing
-                unknowns = s._cached_semantics.get('unknown_objects', []) if hasattr(s, '_cached_semantics') else []
-                if unknowns and depth > 3 and score < 50:
-                    closest_unknown = min([abs(px - min(63, max(0, int(u.get('x', 0))))) + abs(py - min(63, max(0, int(u.get('y', 0))))) for u in unknowns if 'x' in u and 'y' in u], default=float('inf'))
-                    if closest_unknown < float('inf'):
-                        score += (80 - closest_unknown)
-                        priority = -score
+                # Step 2 & 4 Fix: Intrinsic Curiosity & Hazard Avoidance
+                semantics = s._cached_semantics if hasattr(s, '_cached_semantics') else {}
+                interactives = semantics.get('interactive_objects', [])
+                hazards = semantics.get('hazards', [])
+                
+                if np.sum(diff_mask) > 0:
+                    # Avoid hazards
+                    if hazards:
+                        closest_hazard = min([abs(px - min(63, max(0, int(h.get('x', 0))))) + abs(py - min(63, max(0, int(h.get('y', 0))))) for h in hazards if 'x' in h and 'y' in h], default=float('inf'))
+                        if closest_hazard < 3:
+                            score -= 500  # Massive penalty for stepping near a hazard
+                            priority = -score
+                            logger.info(f"[A* Hazard] Path avoiding trap! Penalty applied.")
+
+                    # Curiosity towards interactive objects
+                    if interactives and depth > 3 and score < 50:
+                        closest_interact = min([abs(px - min(63, max(0, int(u.get('x', 0))))) + abs(py - min(63, max(0, int(u.get('y', 0))))) for u in interactives if 'x' in u and 'y' in u], default=float('inf'))
+                        if closest_interact < float('inf'):
+                            score += (80 - closest_interact)
+                            priority = -score
+                            logger.info(f"[A* Curiosity] Action Path: {[a[0] for a in new_hist]} -> Diverting towards interactive object! Dist={closest_interact} | New Score={score:.1f}")
                         
                 if depth < 12:
                     s._pq_count += 1
@@ -926,8 +948,11 @@ class MyAgent(Agent):
                 if s.cl >= 0:
                     try:
                         logger.info(f"V7 Retrospective: Analyzing Level {s.cl} completion...")
-                        from google import genai
+                        # pyrefly: ignore [missing-import]
+                        from google import genai    
+                        # pyrefly: ignore [missing-import]
                         import glob
+                        # pyrefly: ignore [missing-import]
                         from PIL import Image
                         
                         env_path = os.path.join(os.path.dirname(__file__), '.env')
@@ -1007,8 +1032,9 @@ class MyAgent(Agent):
                 s._aem_diffs.clear();s._aem_actions.clear();s._aem_rewards.clear()
                 s._prev_objs=None;s._obj_moved=0;s._ckpt_hash=None;s._unproductive=0
                 
-                # Save start of level hash for Silent Reset Detection
-                s._start_of_level_hash = hashlib.md5(s._raw(lf).tobytes()).hexdigest()[:16]
+                # Step 3 Fix: Save start of level hash for Silent Reset Detection (ignoring bottom UI area y >= 55)
+                f_crop = s._raw(lf)[:55, :]
+                s._start_of_level_hash = hashlib.md5(f_crop.tobytes()).hexdigest()[:16]
                 s._puzzle_monologue = []
 
             # ===== RESET =====
@@ -1040,7 +1066,8 @@ class MyAgent(Agent):
                 return sel
                 
             # ===== SILENT RESET DETECTOR =====
-            ch = hashlib.md5(s._raw(lf).tobytes()).hexdigest()[:16]
+            f_crop = s._raw(lf)[:55, :]
+            ch = hashlib.md5(f_crop.tobytes()).hexdigest()[:16]
             if hasattr(s, '_start_of_level_hash') and ch == s._start_of_level_hash and s.la > 5:
                 logger.warning("SILENT RESET DETECTED! Agent warped back to start (lost a life).")
                 if not hasattr(s, '_fatal_hashes'):

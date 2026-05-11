@@ -46,3 +46,9 @@ While v6 successfully implemented multi-frame tracking and spatial chain-of-thou
   - Implement a safety clamp in the Swarm Planner: `goal_x = min(63, max(0, int(goal_x)))`. This ensures that even if Gemini hallucinates an out-of-bounds pixel coordinate, the heuristic distance logic stays within the 64x64 environment.
 
 By implementing these retrospectives, the agent essentially "writes a wiki" about the game as it plays, ensuring that an early-game BFS victory isn't wasted, but instead leveraged as vital context for complex late-game levels.
+
+
+```bash
+source .venv312/bin/activate
+python CommunitySolutions/chronos_solver/v7/play_game.py
+```
