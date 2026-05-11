@@ -510,7 +510,7 @@ class MyAgent(Agent):
         random.seed(seed); np.random.seed(seed%(2**32-1)); torch.manual_seed(seed%(2**32-1))
         
         # Long-Term Game Intuition (Memory Persistence)
-        s._memory_file = os.path.join(os.path.dirname(__file__), "v7_long_term_memory.json")
+        s._memory_file = os.path.join(os.path.dirname(__file__), "v8_long_term_memory.json")
         s._global_semantic_cache = {
             "game_name": s.game_id,
             "level_completed": "-1",
@@ -543,29 +543,23 @@ class MyAgent(Agent):
         s._bfs_step = 0  # current step in solution
         s._bfs_tried = False
 
-    def _log_level_solving(s, event, details):
+    def _update_scratchpad(s, plan_text, timestamp, reset_for_level=False):
         import json
-        log_file = os.path.join(os.path.dirname(__file__), "v8_level_solving_log.json")
-        log_data = {}
-        if os.path.exists(log_file):
+        sp_file = os.path.join(os.path.dirname(__file__), "v8_scratchpad.json")
+        data = {}
+        if os.path.exists(sp_file):
             try:
-                with open(log_file, 'r') as f:
-                    log_data = json.load(f)
+                with open(sp_file, 'r') as f:
+                    data = json.load(f)
             except: pass
-        
         gn = s.game_id
         cl = str(s.cl)
-        if gn not in log_data: log_data[gn] = {}
-        if cl not in log_data[gn]: log_data[gn][cl] = []
-        
-        log_data[gn][cl].append({
-            "timestamp": time.time(),
-            "event": event,
-            "details": details
-        })
+        if gn not in data: data[gn] = {}
+        if cl not in data[gn] or reset_for_level: data[gn][cl] = []
+        data[gn][cl].append({"timestamp": timestamp, "plan": plan_text})
         try:
-            with open(log_file, 'w') as f:
-                json.dump(log_data, f, indent=2)
+            with open(sp_file, 'w') as f:
+                json.dump(data, f, indent=2)
         except: pass
 
     def append_frame(s, f):
@@ -799,7 +793,7 @@ class MyAgent(Agent):
                 except Exception as e:
                     logger.warning(f"Failed to load image {img_path}: {e}")
             
-            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) The number of 'lives' or 'health' icons. 2) The 'fuel' level if visible. 3) Any 'target_shape'. 4) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 5) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 6) An array of 'sub_goals' in sequential order representing the exact path to victory (e.g. [{'target': 'blue switch', 'x': 10, 'y': 20}, {'target': 'red exit', 'x': 50, 'y': 50}]). CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"sub_goals\": []}."
+            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 6) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 7) Optional: an array of 'walkable_colors' (integer 0-15) if you can deduce them from the long term memory. CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"walkable_colors\": []}."
             
             # Cross-Level Context Injection
             if hasattr(self, '_global_semantic_cache') and self._global_semantic_cache:
@@ -809,7 +803,7 @@ class MyAgent(Agent):
             if not hasattr(self, '_puzzle_monologue'):
                 self._puzzle_monologue = []
             if self._puzzle_monologue:
-                prompt += f"\nRecent Game State History: {self._puzzle_monologue[-3:]}\nWhat has changed? Did I lose a life or make progress?"
+                prompt += f"\nShort Term Memory (Recent State History): {self._puzzle_monologue[-3:]}\nWhat has changed? Did I lose a life or make progress? If I died, update the plan to avoid the hazard."
             
             content = [prompt]
             for img_path, img in zip(recent_images, images):
@@ -833,9 +827,10 @@ class MyAgent(Agent):
                     if part.thought:
                         thought_text += part.text + "\n"
             
-            logger.info(f"== GEMINI DEEP THINK ==\n{thought_text}\n=========================")
-            self._log_level_solving("Thinking Loop", {"thought": thought_text})
-            
+            if thought_text:
+                logger.info(f"== GEMINI SCRATCHPAD ==\n{thought_text}\n=======================")
+                self._update_scratchpad(thought_text, time.time())
+                
             logger.info(f"== GEMINI RAW RESPONSE ==\n{response.text}\n=========================")
             import json
             import re
@@ -843,13 +838,8 @@ class MyAgent(Agent):
             if json_str:
                 goal = json.loads(json_str.group())
                 logger.info(f"== GEMINI PARSED JSON ==\n{json.dumps(goal, indent=2)}\n========================")
+                self._cached_goal = (goal.get('x'), goal.get('y'))
                 self._cached_semantics = goal
-                self._sub_goal_queue = goal.get('sub_goals', [])
-                if self._sub_goal_queue:
-                    self._cached_goal = (self._sub_goal_queue[0].get('x'), self._sub_goal_queue[0].get('y'))
-                    self._log_level_solving("Goal Update", {"active_sub_goal": self._sub_goal_queue[0], "queue": self._sub_goal_queue})
-                else:
-                    self._cached_goal = (goal.get('x'), goal.get('y'))
                 
                 # Update global cache with found semantics
                 if not hasattr(self, '_global_semantic_cache'):
@@ -1093,6 +1083,7 @@ class MyAgent(Agent):
                 f_crop = s._raw(lf)[:55, :]
                 s._start_of_level_hash = hashlib.md5(f_crop.tobytes()).hexdigest()[:16]
                 s._puzzle_monologue = []
+                s._update_scratchpad("LEVEL STARTED", time.time(), reset_for_level=True)
 
             # ===== RESET =====
             if lf.state in [GameState.NOT_PLAYED, GameState.GAME_OVER]:
@@ -1133,7 +1124,7 @@ class MyAgent(Agent):
                     fatal_state = s._hash_history[-2]
                     s._fatal_hashes.add(fatal_state)
                     logger.info(f"EMB: Recorded fatal trajectory state {fatal_state} to episodic memory!")
-                    s._log_level_solving("Session Memory: Death", {"fatal_state": fatal_state, "note": "Agent died, recording to persistent session memory to avoid repeating."})
+                    s._update_scratchpad(f"DIED. Recorded fatal trajectory state {fatal_state} to avoid repeating.", time.time())
                 # Force vision poll on reset to get new life count
                 s._steps_since_vision = 999 
                 s._hash_history.clear()
