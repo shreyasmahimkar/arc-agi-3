@@ -551,18 +551,21 @@ class MyAgent(Agent):
             est = timezone(timedelta(hours=-5), 'EST')
             timestamp = datetime.fromtimestamp(timestamp, est).strftime('%Y-%m-%d %I:%M:%S %p %Z')
 
-        sp_file = os.path.join(os.path.dirname(__file__), "v8_scratchpad.json")
-        data = {}
+        import glob
+        if not hasattr(s, '_scratchpad_file') or reset_for_level:
+            pattern = os.path.join(os.path.dirname(__file__), f"v8_{s.game_id}_level_{s.cl}_scratchpad_iteration_*.json")
+            iteration = len(glob.glob(pattern))
+            s._scratchpad_file = os.path.join(os.path.dirname(__file__), f"v8_{s.game_id}_level_{s.cl}_scratchpad_iteration_{iteration}.json")
+            
+        sp_file = s._scratchpad_file
+        data = []
         if os.path.exists(sp_file):
             try:
                 with open(sp_file, 'r') as f:
                     data = json.load(f)
             except: pass
-        gn = s.game_id
-        cl = str(s.cl)
-        if gn not in data: data[gn] = {}
-        if cl not in data[gn] or reset_for_level: data[gn][cl] = []
-        data[gn][cl].append({"timestamp": timestamp, "plan": plan_text})
+            
+        data.append({"timestamp": timestamp, "plan": plan_text})
         try:
             with open(sp_file, 'w') as f:
                 json.dump(data, f, indent=2)
@@ -799,7 +802,7 @@ class MyAgent(Agent):
                 except Exception as e:
                     logger.warning(f"Failed to load image {img_path}: {e}")
             
-            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 6) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 7) Optional: an array of 'walkable_colors' (integer 0-15) if you can deduce them from the long term memory. CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. If an item is on the far right, its X is 63. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"walkable_colors\": []}."
+            prompt = "Analyze this sequence of maze puzzle frames. Provide your reasoning in 'spatial_analysis' FIRST. Before you plan any path, clearly define what the 'end_game_state' for this level looks like (e.g., reaching the green door with the blue key) and provide a 'gameplan' to achieve it. Then extract: 1) the (x, y) coordinates of the ultimate objective. 2) The number of 'lives' or 'health' icons. 3) The 'fuel' level if visible. 4) Any 'target_shape'. 5) An array of 'interactive_objects' (e.g. [{'type': 'switch', 'x': 20, 'y': 20}]). 6) An array of 'hazards' or deadly traps (e.g. [{'type': 'trap', 'x': 10, 'y': 10}]). 7) Optional: an array of 'walkable_colors' (integer 0-15). CRITICAL: Output coordinates strictly as grid cell indices between 0 and 63. Do NOT output pixel coordinates from the image resolution. The grid axis is marked every 5 units. Reply ONLY with a JSON object like {\"spatial_analysis\": \"...\", \"end_game_state\": \"...\", \"gameplan\": \"...\", \"x\": 10, \"y\": 20, \"lives\": 3, \"fuel\": 50, \"target_shape\": \"red square\", \"interactive_objects\": [], \"hazards\": [], \"walkable_colors\": []}."
             
             # Cross-Level Context Injection
             if hasattr(self, '_global_semantic_cache') and self._global_semantic_cache:
@@ -835,7 +838,6 @@ class MyAgent(Agent):
             
             if thought_text:
                 logger.info(f"== GEMINI SCRATCHPAD ==\n{thought_text}\n=======================")
-                self._update_scratchpad(thought_text, time.time())
                 
             logger.info(f"== GEMINI RAW RESPONSE ==\n{response.text}\n=========================")
             import json
@@ -846,6 +848,17 @@ class MyAgent(Agent):
                 logger.info(f"== GEMINI PARSED JSON ==\n{json.dumps(goal, indent=2)}\n========================")
                 self._cached_goal = (goal.get('x'), goal.get('y'))
                 self._cached_semantics = goal
+                
+                plan_msg = ""
+                if thought_text:
+                    plan_msg += f"THOUGHTS:\n{thought_text}\n"
+                if goal.get('end_game_state'):
+                    plan_msg += f"END GAME STATE:\n{goal.get('end_game_state')}\n"
+                if goal.get('gameplan'):
+                    plan_msg += f"GAMEPLAN:\n{goal.get('gameplan')}\n"
+                
+                if plan_msg:
+                    self._update_scratchpad(plan_msg, time.time())
                 
                 # Update global cache with found semantics
                 if not hasattr(self, '_global_semantic_cache'):
