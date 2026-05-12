@@ -5,6 +5,15 @@ import glob
 from pathlib import Path
 import logging
 
+# Load .env file automatically
+env_path = os.path.join(os.path.dirname(__file__), ".env")
+if os.path.exists(env_path):
+    with open(env_path) as f:
+        for line in f:
+            if '=' in line and not line.startswith('#'):
+                k, v = line.strip().split('=', 1)
+                os.environ[k] = v.strip('"\'')
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import numpy as np
@@ -20,7 +29,7 @@ from arcengine import GameAction, GameState, ActionInput
 from my_agent import MyAgent
 
 # Setup logging
-log_file = os.path.join(os.path.dirname(__file__), "v8_run.log")
+log_file = os.path.join(os.path.dirname(__file__), "v9_run.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -51,12 +60,17 @@ def save_frame_as_image(frame_data, current_level, step_count, output_dir):
     plt.close()
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Play ARC game with Swarm Solver")
+    parser.add_argument("--game", type=str, default="ls20", help="Name of the game to play (e.g. ls20)")
+    args = parser.parse_args()
+
     logger.info("==============================================")
     logger.info("=== Swarm Solver (v4): Play Game using MyAgent ===")
     logger.info("==============================================")
     
     # 4. Initializer to change the game. Start with ls20.
-    GAME_NAME = 'ls20'
+    GAME_NAME = args.game
     
     # Ensure it only gets games from local dir
     env_dir = os.path.join(repo_root, 'arc-prize-2026-arc-agi-3', 'environment_files')
@@ -117,7 +131,7 @@ def main():
 
     
     logger.info("\n[3] Resetting environment and starting play loop...")
-    images_dir = os.path.join(os.path.dirname(__file__), 'images')
+    images_dir = os.path.join(os.path.dirname(__file__), 'images', GAME_NAME)
     try:
         reset_out = env.reset()
         lf = reset_out[0] if isinstance(reset_out, tuple) else reset_out

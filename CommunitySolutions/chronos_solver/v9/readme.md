@@ -33,3 +33,13 @@ The agent must learn from the autopsy in its subsequent attempts.
 3. [ ] Build the `_perform_death_autopsy()` function to trigger upon `Silent Reset` detection.
 4. [ ] Update the `_update_scratchpad()` utility to finalize the current iteration file and spawn the `iteration_X+1` file upon death.
 5. [ ] Pass the previous iteration's autopsy results into the active prompt's context window.
+
+
+```bash
+source .venv312/bin/activate
+python CommunitySolutions/chronos_solver/v9/play_game.py --game ls20
+python CommunitySolutions/chronos_solver/v9/play_game.py --game ar25
+python CommunitySolutions/chronos_solver/v9/play_game.py --game bp35
+```
+
+
