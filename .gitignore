@@ -28,3 +28,10 @@ logs/
 # Environment Variables
 .env
 *.png
+
+# Wheels Zip and Folders
+CommunitySolutions/chronos_solver/v11/arc-agi-v11-wheels.zip
+CommunitySolutions/chronos_solver/v11/wheels/
+CommunitySolutions/chronos_solver/v11/wheels-bkup/
+
+
