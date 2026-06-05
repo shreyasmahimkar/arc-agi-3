@@ -92,16 +92,24 @@ def boot_gemma_server(vram_gb=16, backend="ollama"):
 
 # ==================== LOCAL MULTIMODAL VISION CALL ====================
 
+_kaggle_model = None
+_kaggle_processor = None
+
 def call_local_multimodal_model(prompt: str, images: list, base_url: str = "http://localhost:11434") -> str:
     """
-    Calls the local Gemma 4 12B multimodal model with base64 encoded images.
-    Supports Ollama endpoints natively.
+    Calls the local Gemma 4 12B/31B multimodal model.
+    1. If Ollama is available, uses the Ollama API.
+    2. Otherwise, if running on Kaggle with local model inputs, uses Hugging Face transformers.
     """
+    global _kaggle_model, _kaggle_processor
+    
+    # Try Ollama first
     try:
         # Encode PIL images to base64
         base64_imgs = []
         for img in images:
-            buffered = io.BytesIO() if 'io' in globals() else temp_io_buffer()
+            import io
+            buffered = io.BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
             base64_imgs.append(img_str)
@@ -150,7 +158,73 @@ def call_local_multimodal_model(prompt: str, images: list, base_url: str = "http
             return r.json()["choices"][0]["message"]["content"]
             
     except Exception as e:
-        logger.error(f"Local multimodal call failed: {e}")
+        logger.debug(f"Ollama local multimodal call failed/unavailable: {e}")
+
+    # Fallback to local Hugging Face model (e.g. on Kaggle)
+    kaggle_paths = [
+        "/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b/2",
+        "/kaggle/input/models/google/gemma-4/transformers/gemma-4-31b-it/1",
+        "/kaggle/input/models/google/gemma-4/transformers/gemma-4-12b/1",
+    ]
+    model_id = None
+    for kp in kaggle_paths:
+        if os.path.exists(kp):
+            model_id = kp
+            break
+            
+    if model_id:
+        try:
+            import torch
+            from transformers import AutoProcessor, AutoModelForMultimodalLM, BitsAndBytesConfig
+            
+            if _kaggle_model is None:
+                logger.info(f"Loading local Hugging Face model from {model_id}...")
+                bnb_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True
+                )
+                _kaggle_processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+                _kaggle_model = AutoModelForMultimodalLM.from_pretrained(
+                    model_id,
+                    quantization_config=bnb_config,
+                    device_map="auto",
+                    trust_remote_code=True
+                )
+                
+            messages = [
+                {"role": "user", "content": [{"type": "text", "text": prompt}]}
+            ]
+            for img in images:
+                messages[0]["content"].append({"type": "image", "image": img})
+                
+            formatted_prompt = _kaggle_processor.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=True,
+                enable_thinking=True
+            )
+            
+            if images:
+                inputs = _kaggle_processor(text=formatted_prompt, images=images, return_tensors="pt").to(_kaggle_model.device)
+            else:
+                inputs = _kaggle_processor(text=formatted_prompt, return_tensors="pt").to(_kaggle_model.device)
+                
+            with torch.no_grad():
+                outputs = _kaggle_model.generate(
+                    **inputs, 
+                    max_new_tokens=1024, 
+                    do_sample=False,
+                    temperature=0.1
+                )
+            input_len = inputs["input_ids"].shape[1]
+            generated_tokens = outputs[0][input_len:]
+            response = _kaggle_processor.decode(generated_tokens, skip_special_tokens=True)
+            return response
+        except Exception as ex:
+            logger.error(f"Kaggle local Hugging Face multimodal call failed: {ex}")
+            
     return ""
 
 def temp_io_buffer():
