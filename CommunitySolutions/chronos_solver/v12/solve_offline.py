@@ -30,7 +30,7 @@ logging.basicConfig(
               logging.StreamHandler(sys.stdout)])
 logger = logging.getLogger(__name__)
 
-from my_agent import BFSSolver  # noqa: E402
+from my_agent import BFSSolver, HW  # noqa: E402
 
 
 def find_game_source(game_id):
@@ -54,7 +54,8 @@ def main():
     ap.add_argument("--max-levels", type=int, default=12)
     ap.add_argument("--level", type=int, default=None,
                     help="solve only this level index")
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--workers", type=int, default=HW["workers"])
+    ap.add_argument("--strategy", choices=["bfs","greedy"], default="bfs")
     args = ap.parse_args()
 
     src = find_game_source(args.game)
@@ -97,8 +98,8 @@ def main():
             break
         solver.bfs_timeout = min(args.bfs_timeout, remaining - 3)
         prev = solver.solutions.get(li - 1) if li > 0 else None
-        fp = f"/tmp/v12_frontier_{args.game}_L{li}.pkl"
-        sol = solver.solve_level(li, prev_solution=prev, frontier_path=fp)
+        fp = f"/tmp/v12_frontier_{args.game}_L{li}.{args.strategy}.pkl"
+        sol = solver.solve_level(li, prev_solution=prev, frontier_path=fp, strategy=args.strategy)
         if sol:
             json.dump({str(k): v for k, v in solver.solutions.items()},
                       open(cache_path, 'w'))

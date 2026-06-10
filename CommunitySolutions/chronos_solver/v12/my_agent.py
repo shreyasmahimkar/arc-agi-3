@@ -88,17 +88,62 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+# ==================== [v12] HARDWARE AUTO-PROFILE ====================
+# Build locally (M1 Pro / mps), deploy on RTX 6000 (cuda) or Kaggle T4s —
+# one codebase, no edits. BFS workers scale with CPU cores everywhere.
+import platform
+import multiprocessing as _mp
+
+def get_hw_profile():
+    p = {'mode': 'CPU', 'device': 'cpu',
+         'workers': max(1, _mp.cpu_count() - 1),
+         'bsz': 64, 'buf_size': 50_000, 'tfreq': 10, 'net_mult': 1,
+         'compile': False, 'amp': False,
+         'mp_ctx': 'spawn' if platform.system() == 'Darwin' else 'fork'}
+    if not TORCH_AVAILABLE:
+        return p
+    if torch.cuda.is_available():
+        p['device'] = 'cuda'
+        try:
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        except Exception:
+            vram_gb = 0
+        if vram_gb > 30:
+            # --- BEAST MODE: RTX PRO 6000 (48GB) ---
+            p.update(mode='RTX_6000',
+                     workers=max(1, _mp.cpu_count() - 4),
+                     bsz=2048, buf_size=2_000_000, tfreq=2, net_mult=4,
+                     compile=hasattr(torch, 'compile'), amp=True)
+        else:
+            # --- CLOUD: STANDARD GPU (T4 16GB / Kaggle 2xT4) ---
+            p.update(mode='CUDA_STD',
+                     workers=max(1, _mp.cpu_count() - 2),
+                     bsz=128, buf_size=100_000, tfreq=5, net_mult=1, amp=True)
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        # --- LOCAL: APPLE SILICON (M1 Pro, 32GB unified) ---
+        p.update(mode='M1_PRO', device='mps',
+                 workers=8,          # 8 performance cores drive the BFS
+                 bsz=128, buf_size=100_000, tfreq=5, net_mult=1,
+                 amp=False,          # MPS prefers native FP32 for stability
+                 mp_ctx='spawn')     # CRITICAL: fork deadlocks torch on macOS
+    return p
+
+HW = get_hw_profile()
+logger.info(f"[v12] hardware profile: {HW['mode']} device={HW['device']} "
+            f"workers={HW['workers']} bsz={HW['bsz']} mp_ctx={HW['mp_ctx']}")
+
 # ==================== [v12] PARALLEL BFS WORKERS ====================
 _BFS_W = {}
 
-def _bfs_worker_init(game_path, mask, hidden_fields):
+def _bfs_worker_init(game_path, hash_mask, sig_mask, hidden_fields):
     """Pool initializer: load the game module so snapshots unpickle."""
     import importlib.util as _ilu
     spec = _ilu.spec_from_file_location('game_mod', game_path)
     mod = _ilu.module_from_spec(spec)
     sys.modules['game_mod'] = mod
     spec.loader.exec_module(mod)
-    _BFS_W['mask'] = mask
+    _BFS_W['mask'] = hash_mask      # excluded from the dedup hash
+    _BFS_W['sig_mask'] = sig_mask   # excluded from the progress histogram
     _BFS_W['hidden'] = hidden_fields
 
 def _bfs_expand_task(args):
@@ -126,9 +171,24 @@ def _bfs_expand_task(args):
             if extras:
                 h = h + "|" + "|".join(extras)
         win = bool(r.levels_completed > level_idx or g._current_level_index > level_idx)
-        return (h, win, BFSSolver._snap(g))
+        sig_mask = _BFS_W.get('sig_mask')
+        fs = f
+        if sig_mask is not None:
+            fs = f.copy(); fs[sig_mask] = 0
+        sig = tuple(np.bincount(fs.flatten(), minlength=16).tolist())
+        return (h, win, BFSSolver._snap(g), sig)
     except Exception:
         return None
+
+def _bfs_expand_node(args):
+    """[v12-speed] Worker: restore ONE snapshot, apply ALL actions.
+    Ships each snapshot to the pool once instead of once per action."""
+    snap, actions, level_idx = args
+    out = []
+    for act_id, data in actions:
+        res = _bfs_expand_task((snap, act_id, data, level_idx))
+        out.append((act_id, data, res))
+    return out
 
 # ==================== BFS SOLVER ====================
 class BFSSolver:
@@ -291,14 +351,21 @@ class BFSSolver:
         actions = []
         base = self._snap(game)  # [v12-speed] snapshot once, restore per probe
         # Directional/interact actions
+        deferred = []
         for a in [a for a in avail if a <= 5]:
             g = self._restore(base)
             try:
                 r = g.perform_action(ActionInput(id=GameAction.from_id(a)), raw=True)
                 if r.frame and np.sum(f0 != np.array(r.frame[-1])) > 0:
                     actions.append((a, None))
+                else:
+                    # [v12] do NOT prune state-dependent actions: an interact
+                    # button can be a no-op at spawn yet required later
+                    # (stand on switch → press). Keep it, ordered last.
+                    deferred.append((a, None))
             except:
                 pass
+        actions.extend(deferred)
         # Click actions
         if 6 in avail:
             t0 = time.time()
@@ -326,8 +393,11 @@ class BFSSolver:
                                 actions.append((6, {'x': x, 'y': y, 'game_id': 'bfs'}))
                     except:
                         pass
+        # [v12] if NOTHING was effective, report empty so warmup-unlock runs
+        if len(actions) == len(deferred):
+            return []
         return actions
-    def solve_level(self, level_idx, max_states=500000, prev_solution=None, frontier_path=None):
+    def solve_level(self, level_idx, max_states=500000, prev_solution=None, frontier_path=None, strategy='bfs'):
         """Find optimal solution for a level via BFS (Memory Optimised via Action Replay)."""
         if not self.game_cls:
             return None
@@ -372,21 +442,32 @@ class BFSSolver:
         # Phase 2: BFS — [v12-speed] snapshot frontier (no history replay)
         # ==========================================
         transient = self._detect_transient(game, f0, actions)
-        res, stats = self._bfs_search(game, f0, actions, level_idx, None,
-                                      self.bfs_timeout, max_states,
-                                      frontier_path=frontier_path,
-                                      mask=transient)
-        if res is not None:
-            return res
-        explored, n_unique, elapsed_first = stats
+        # [v12] if a previous pass already proved the masked space is a dead
+        # end (an unmasked frontier exists), skip the masked phase entirely
+        skip_masked = bool(frontier_path and os.path.exists(frontier_path + '.nomask'))
+        if not skip_masked:
+            res, stats = self._bfs_search(game, f0, actions, level_idx, None,
+                                          self.bfs_timeout, max_states,
+                                          frontier_path=frontier_path,
+                                          mask=transient,
+                                          greedy=(strategy == 'greedy'))
+            if res is not None:
+                return res
+            explored, n_unique, elapsed_first = stats
+        else:
+            explored, n_unique, elapsed_first = 0, 0, 0.0
         # [v12] masked search exhausted the (aliased) space without a goal —
-        # the mask was too aggressive; retry without it.
-        if transient is not None and elapsed_first < self.bfs_timeout * 0.5:
-            logger.info(f"BFS L{level_idx}: masked space exhausted in {elapsed_first:.1f}s — retrying unmasked")
+        # time/phase matters in this level (waiting for doors/timers), so the
+        # dedup hash must keep the transient pixels. Retry with unmasked hash;
+        # greedy keeps the masked histogram as its progress prior.
+        if skip_masked or (transient is not None and elapsed_first < self.bfs_timeout * 0.5):
+            logger.info(f"BFS L{level_idx}: masked space exhausted ({elapsed_first:.1f}s) — continuing with unmasked hash")
             res, stats = self._bfs_search(game, f0, actions, level_idx, None,
                                           self.bfs_timeout - elapsed_first, max_states,
                                           frontier_path=(frontier_path + '.nomask') if frontier_path else None,
-                                          mask=None, tag="unmasked")
+                                          mask=None, tag="unmasked",
+                                          greedy=(strategy == 'greedy'),
+                                          sig_mask=transient)
             if res is not None:
                 return res
             explored, n_unique, elapsed_first = stats
@@ -418,7 +499,114 @@ class BFSSolver:
         return None
     def _bfs_search(self, game, f0, actions, level_idx, hidden_fields,
                     time_budget, max_states, tag="", frontier_path=None,
-                    mask=None):
+                    mask=None, greedy=False, sig_mask=None):
+        # [v12] greedy mode: best-first on "progress events" — a state whose
+        # color histogram changed vs its parent has interacted with the map
+        # (collected a key, opened a door). Movement alone never changes the
+        # histogram (the sprite just translates; timer rows are masked).
+        if greedy:
+            return self._greedy_search(game, f0, actions, level_idx, hidden_fields,
+                                       time_budget, max_states, tag, frontier_path,
+                                       mask, sig_mask=sig_mask)
+        return self._bfs_search_fifo(game, f0, actions, level_idx, hidden_fields,
+                                     time_budget, max_states, tag, frontier_path, mask)
+
+    @staticmethod
+    def _hist_sig(frame, mask):
+        fm = frame
+        if mask is not None:
+            fm = frame.copy(); fm[mask] = 0
+        return tuple(np.bincount(fm.flatten(), minlength=16).tolist())
+
+    def _greedy_search(self, game, f0, actions, level_idx, hidden_fields,
+                       time_budget, max_states, tag="", frontier_path=None,
+                       mask=None, sig_mask=None):
+        if sig_mask is None:
+            sig_mask = mask
+        import heapq
+        visited = set()
+        heap = []
+        explored = 0
+        counter = 0
+        if frontier_path and os.path.exists(frontier_path):
+            try:
+                with open(frontier_path, 'rb') as fh:
+                    st = pickle.load(fh)
+                visited, heap, explored, counter = st['visited'], st['heap'], st['explored'], st['counter']
+                logger.info(f"BFS L{level_idx}: resumed greedy frontier ({len(heap)} nodes, {len(visited)} visited)")
+            except Exception as e:
+                logger.warning(f"greedy frontier resume failed: {e}")
+                visited, heap, explored, counter = set(), [], 0, 0
+        if not heap:
+            visited.add(self._state_hash(game, f0, hidden_fields, mask=mask))
+            sig0 = self._hist_sig(f0, sig_mask)
+            heapq.heappush(heap, (0, 0, 0, self._snap(game), [], sig0))
+        pool = None
+        if self.workers > 1:
+            try:
+                import multiprocessing as mp
+                # macOS requires 'spawn' (fork deadlocks torch); Linux uses 'fork'
+                pool = mp.get_context(HW['mp_ctx']).Pool(
+                    self.workers, initializer=_bfs_worker_init,
+                    initargs=(self.game_path, mask, sig_mask, hidden_fields))
+            except Exception:
+                pool = None
+        t0 = time.time()
+        while heap and explored < max_states and (time.time() - t0) < time_budget:
+            batch, metas = [], []
+            take = max(1, (self.workers * 4) if pool else 1)
+            while heap and len(batch) < take:
+                negprog, depth, _, snap, hist, sig = heapq.heappop(heap)
+                batch.append((snap, actions, level_idx))
+                metas.append((negprog, depth, hist, sig))
+            if pool:
+                try:
+                    node_results = pool.map(_bfs_expand_node, batch,
+                                            chunksize=max(1, len(batch) // self.workers))
+                except Exception as e:
+                    logger.warning(f"greedy pool batch failed ({e})"); break
+            else:
+                _BFS_W['mask'] = mask; _BFS_W['sig_mask'] = sig_mask
+                _BFS_W['hidden'] = hidden_fields
+                node_results = [_bfs_expand_node(a) for a in batch]
+            for node_out, (negprog, depth, hist, sig) in zip(node_results, metas):
+                explored += len(node_out)
+                for act_id, data, res in node_out:
+                    if res is None:
+                        continue
+                    h, win, child_snap, child_sig = res
+                    if h in visited:
+                        continue
+                    visited.add(h)
+                    new_hist = hist + [(act_id, data)]
+                    if win:
+                        if pool: pool.terminate()
+                        elapsed = time.time() - t0
+                        logger.info(f"BFS L{level_idx}: SOLVED (greedy{(' '+tag) if tag else ''}) in {len(new_hist)} actions ({explored} explored, {elapsed:.1f}s)")
+                        self.solutions[level_idx] = new_hist
+                        if frontier_path and os.path.exists(frontier_path):
+                            try: os.unlink(frontier_path)
+                            except: pass
+                        return new_hist, (explored, len(visited), elapsed)
+                    prog = -negprog + (1 if child_sig != sig else 0)
+                    if depth < 400:
+                        counter += 1
+                        heapq.heappush(heap, (-prog, depth + 1, counter, child_snap, new_hist, child_sig))
+        if pool:
+            pool.terminate()
+        if frontier_path and heap:
+            try:
+                with open(frontier_path, 'wb') as fh:
+                    pickle.dump({'visited': visited, 'heap': heap,
+                                 'explored': explored, 'counter': counter}, fh, -1)
+                logger.info(f"BFS L{level_idx}: greedy frontier persisted ({len(heap)} nodes)")
+            except Exception as e:
+                logger.warning(f"greedy frontier persist failed: {e}")
+        return None, (explored, len(visited), time.time() - t0)
+
+    def _bfs_search_fifo(self, game, f0, actions, level_idx, hidden_fields,
+                         time_budget, max_states, tag="", frontier_path=None,
+                         mask=None):
         """[v12-speed] BFS storing compressed pickle snapshots in the frontier.
         The v19 'memory optimised replay' re-simulated the full action history
         for every dequeued node (O(depth) sims + 2 deepcopies per expansion).
@@ -447,9 +635,9 @@ class BFSSolver:
         if self.workers > 1:
             try:
                 import multiprocessing as mp
-                pool = mp.get_context('fork').Pool(
+                pool = mp.get_context(HW['mp_ctx']).Pool(
                     self.workers, initializer=_bfs_worker_init,
-                    initargs=(self.game_path, mask, hidden_fields))
+                    initargs=(self.game_path, mask, mask, hidden_fields))
             except Exception as e:
                 logger.warning(f"BFS: pool unavailable ({e}); sequential")
                 pool = None
@@ -467,34 +655,35 @@ class BFSSolver:
 
         while queue and explored < max_states and (time.time() - t0) < time_budget:
             if pool is not None:
-                # batch a slice of the frontier across workers
+                # batch a slice of the frontier across workers (one task per
+                # node so each snapshot ships to the pool exactly once)
                 batch, metas = [], []
-                while queue and len(metas) < self.workers * 4:
+                while queue and len(batch) < self.workers * 4:
                     snap, hist, depth = queue.popleft()
-                    for act_id, data in actions:
-                        batch.append((snap, act_id, data, level_idx))
-                        metas.append((hist, depth, act_id, data))
+                    batch.append((snap, actions, level_idx))
+                    metas.append((hist, depth))
                 try:
-                    results = pool.map(_bfs_expand_task, batch,
-                                       chunksize=max(1, len(batch) // (self.workers * 2)))
+                    node_results = pool.map(_bfs_expand_node, batch,
+                                            chunksize=max(1, len(batch) // self.workers))
                 except Exception as e:
                     logger.warning(f"BFS: pool batch failed ({e})")
                     break
-                explored += len(batch)
                 wins = []
-                for res, (hist, depth, act_id, data) in zip(results, metas):
-                    if res is None:
-                        continue
-                    h, win, child_snap = res
-                    if h in visited:
-                        continue
-                    visited.add(h)
-                    new_hist = hist + [(act_id, data)]
-                    if win:
-                        wins.append(new_hist)
-                        continue
-                    if depth < 200:
-                        queue.append((child_snap, new_hist, depth + 1))
+                for node_out, (hist, depth) in zip(node_results, metas):
+                    explored += len(node_out)
+                    for act_id, data, res in node_out:
+                        if res is None:
+                            continue
+                        h, win, child_snap, _sig = res
+                        if h in visited:
+                            continue
+                        visited.add(h)
+                        new_hist = hist + [(act_id, data)]
+                        if win:
+                            wins.append(new_hist)
+                            continue
+                        if depth < 200:
+                            queue.append((child_snap, new_hist, depth + 1))
                 if wins:
                     best = min(wins, key=len)
                     return _finish(best, time.time() - t0)
@@ -682,16 +871,18 @@ class ActionEffectAttention(nn.Module):
         ctx=torch.bmm(attn,vals).squeeze(1)
         return s.v_proj(ctx)
 class ForgeNet(nn.Module):
-    def __init__(s, in_ch=26, g=64):
+    def __init__(s, in_ch=26, g=64, mult=1):
         super().__init__()
         s.g=g
-        s.c1=nn.Conv2d(in_ch,32,3,padding=1);s.c2=nn.Conv2d(32,64,3,padding=1)
-        s.c3=nn.Conv2d(64,128,3,padding=1);s.c4=nn.Conv2d(128,256,3,padding=1)
-        s.attn=CBAM(256);s.ar=nn.Conv2d(256,64,1);s.ap=nn.MaxPool2d(4,4)
-        s.af=nn.Linear(64*16*16,256);s.ah=nn.Linear(256,5);s.dr=nn.Dropout(0.15)
-        s.cc1=nn.Conv2d(256,128,3,padding=1);s.cc2=nn.Conv2d(128,64,3,padding=1)
-        s.cc3=nn.Conv2d(64,32,1);s.cc4=nn.Conv2d(32,1,1)
-        s.gp=nn.AdaptiveAvgPool2d(1);s.gf=nn.Linear(256,64)
+        # [v12] mult=1 (Mac/T4) -> 256 max channels; mult=4 (RTX 6000) -> 1024
+        c1, c2, c3, c4 = 32*mult, 64*mult, 128*mult, 256*mult
+        s.c1=nn.Conv2d(in_ch,c1,3,padding=1);s.c2=nn.Conv2d(c1,c2,3,padding=1)
+        s.c3=nn.Conv2d(c2,c3,3,padding=1);s.c4=nn.Conv2d(c3,c4,3,padding=1)
+        s.attn=CBAM(c4);s.ar=nn.Conv2d(c4,c2,1);s.ap=nn.MaxPool2d(4,4)
+        s.af=nn.Linear(c2*16*16,c4);s.ah=nn.Linear(c4,5);s.dr=nn.Dropout(0.15)
+        s.cc1=nn.Conv2d(c4,c3,3,padding=1);s.cc2=nn.Conv2d(c3,c2,3,padding=1)
+        s.cc3=nn.Conv2d(c2,32,1);s.cc4=nn.Conv2d(32,1,1)
+        s.gp=nn.AdaptiveAvgPool2d(1);s.gf=nn.Linear(c4,64)
         s.aea=ActionEffectAttention(feat_dim=64,mem_dim=32,n_actions=5)
     def forward(s, x, mem_diffs=None, mem_actions=None, mem_rewards=None):
         x=F.relu(s.c1(x));x=F.relu(s.c2(x));x=F.relu(s.c3(x));f=F.relu(s.c4(x))
@@ -722,12 +913,12 @@ class MyAgent(Agent):
         random.seed(seed); np.random.seed(seed%(2**32-1))
         if TORCH_AVAILABLE: torch.manual_seed(seed%(2**32-1))
         s.start_time = time.time()
-        s.device = (torch.device('cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu'))
-                    if TORCH_AVAILABLE else None)
+        s.device = torch.device(HW['device']) if TORCH_AVAILABLE else None
         s.G=64; s.IN=26
         s.net=None; s.opt=None
-        s.buf=deque(maxlen=50000); s.buf_h=set()
-        s.bsz=64; s.tfreq=10
+        # [v12] buffers/batching from the hardware profile
+        s.buf=deque(maxlen=HW['buf_size']); s.buf_h=set()
+        s.bsz=HW['bsz']; s.tfreq=HW['tfreq']
         s.pt=None; s.pai=None; s.pr=None; s.ph=None
         s.cl=-1; s.fhist=deque(maxlen=6); s.la=0
         s.al=[GameAction.ACTION1,GameAction.ACTION2,GameAction.ACTION3,GameAction.ACTION4,GameAction.ACTION5]
@@ -758,7 +949,8 @@ class MyAgent(Agent):
         """Initialize BFS solver on first call."""
         src, cls = find_game_source_and_class(s.game_id, s.arc_env)
         if src:
-            s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=180)
+            s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=180,
+                               workers=HW['workers'])
             if s._bfs.load():
                 logger.info(f"BFS: loaded {cls} from {src}")
                 # [v12] hydrate BFS solution cache from disk (offline pre-solve)
@@ -925,11 +1117,21 @@ class MyAgent(Agent):
         acts=torch.tensor([e['a'] for e in batch],dtype=torch.long,device=s.device)
         rews=torch.tensor([e['r'] for e in batch],dtype=torch.float32,device=s.device)
         rews=torch.sigmoid(rews);s.opt.zero_grad()
-        logits=s.net(states)
-        acts_c=acts.clamp(0,logits.size(1)-1)
-        sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
-        loss=F.binary_cross_entropy_with_logits(sel,rews)
-        p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
+        if HW['amp']:
+            # RTX/T4: bfloat16 autocast on Tensor Cores
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                logits=s.net(states)
+                acts_c=acts.clamp(0,logits.size(1)-1)
+                sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
+                loss=F.binary_cross_entropy_with_logits(sel,rews)
+                p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
+        else:
+            # Mac M1 (MPS) / CPU: native FP32 for gradient stability
+            logits=s.net(states)
+            acts_c=acts.clamp(0,logits.size(1)-1)
+            sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
+            loss=F.binary_cross_entropy_with_logits(sel,rews)
+            p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
         loss.backward();s.opt.step()
     def _get_aem_tensors(s):
         if len(s._aem_diffs)<2:return None,None,None
@@ -1021,7 +1223,13 @@ class MyAgent(Agent):
                 # Init CNN fallback
                 s.buf.clear(); s.buf_h.clear()
                 if TORCH_AVAILABLE:
-                    s.net = ForgeNet(s.IN, s.G).to(s.device)
+                    if HW['mode'] == 'RTX_6000':
+                        torch.backends.cuda.matmul.allow_tf32 = True
+                        torch.backends.cudnn.allow_tf32 = True
+                    s.net = ForgeNet(s.IN, s.G, mult=HW['net_mult']).to(s.device)
+                    if HW['compile']:
+                        try: s.net = torch.compile(s.net)
+                        except: pass
                     for wp in ['/kaggle/input/forge-pretrained-weights/pretrained_weights.pt',
                                'pretrained_weights.pt']:
                         try:

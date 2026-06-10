@@ -82,7 +82,7 @@ def main():
         operation_mode=arc_agi.OperationMode.OFFLINE,
     )
     
-    env = arc.make(GAME_NAME, render_mode=None if args.fast else 'terminal')
+    env = arc.make(GAME_NAME, render_mode=None if args.fast else 'human')
     
     game_file_pattern = os.path.join(env_dir, GAME_NAME, "**", f"{GAME_NAME}.py")
     matches = glob.glob(game_file_pattern, recursive=True)
