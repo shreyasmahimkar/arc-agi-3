@@ -135,6 +135,20 @@ logger.info(f"[v12] hardware profile: {HW['mode']} device={HW['device']} "
 # ==================== [v12] PARALLEL BFS WORKERS ====================
 _BFS_W = {}
 
+def _scalar_state(g):
+    """[v12] Public scalar attrs of the game object (key state, countdown
+    timers, player coords). Folding these into the state hash is essential:
+    e.g. ls20's lock-opening countdown produces pixel-identical frames that
+    differ only in a hidden counter — without this, BFS prunes the countdown
+    chain as 'visited' and the win is unreachable."""
+    out = []
+    for k, v in g.__dict__.items():
+        if k.startswith('_'):
+            continue
+        if isinstance(v, (bool, int)):
+            out.append((k, int(v)))
+    return tuple(sorted(out))
+
 def _bfs_worker_init(game_path, hash_mask, sig_mask, hidden_fields):
     """Pool initializer: load the game module so snapshots unpickle."""
     import importlib.util as _ilu
@@ -160,7 +174,7 @@ def _bfs_expand_task(args):
         fm = f
         if mask is not None:
             fm = f.copy(); fm[mask] = 0
-        h = hashlib.md5(fm.tobytes()).hexdigest()[:16]
+        h = hashlib.md5(fm.tobytes() + repr(_scalar_state(g)).encode()).hexdigest()[:16]
         hidden = _BFS_W.get('hidden')
         if hidden:
             extras = []
@@ -302,7 +316,7 @@ class BFSSolver:
         if mask is not None:
             frame = frame.copy()
             frame[mask] = 0
-        fh = hashlib.md5(frame.tobytes()).hexdigest()[:16]
+        fh = hashlib.md5(frame.tobytes() + repr(_scalar_state(g)).encode()).hexdigest()[:16]
         if hidden_fields:
             extras = []
             for field_name in hidden_fields:
@@ -397,6 +411,32 @@ class BFSSolver:
         if len(actions) == len(deferred):
             return []
         return actions
+    def _make_start_state(self, level_idx):
+        """[v12] Build level N's TRUE start state by chaining the cached
+        solutions for levels 0..N-1 from a fresh game — `set_level(N)` + RESET
+        produces a DIFFERENT state than naturally advancing (player position,
+        carried key rotation, etc.), so solutions found from the synthetic
+        baseline can fail when replayed in the real environment."""
+        try:
+            g = self.game_cls()
+            g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+            g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+            for li in range(level_idx):
+                sol = self.solutions.get(li)
+                if sol is None:
+                    return None
+                for a, d in sol:
+                    ai = ActionInput(id=GameAction.from_id(a), data=d) if d else ActionInput(id=GameAction.from_id(a))
+                    g.perform_action(ai, raw=True)
+                if g._current_level_index != li + 1:
+                    logger.warning(f"BFS: chained replay desynced at L{li} "
+                                   f"(at level {g._current_level_index})")
+                    return None
+            return g
+        except Exception as e:
+            logger.warning(f"BFS: chained baseline failed: {e}")
+            return None
+
     def solve_level(self, level_idx, max_states=500000, prev_solution=None, frontier_path=None, strategy='bfs'):
         """Find optimal solution for a level via BFS (Memory Optimised via Action Replay)."""
         if not self.game_cls:
@@ -405,13 +445,17 @@ class BFSSolver:
         if level_idx in self.solutions:
             logger.info(f"BFS L{level_idx}: cache hit ({len(self.solutions[level_idx])} actions)")
             return self.solutions[level_idx]
-        game = self.game_cls()
-        game.set_level(level_idx)
-        game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-        r0 = game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-        if not r0.frame:
-            return None
-        f0 = np.array(r0.frame[-1])
+        game = None
+        if level_idx > 0 and all(i in self.solutions for i in range(level_idx)):
+            game = self._make_start_state(level_idx)
+            if game is not None:
+                logger.info(f"BFS L{level_idx}: using TRUE chained baseline (replayed L0..L{level_idx-1})")
+        if game is None:
+            game = self.game_cls()
+            game.set_level(level_idx)
+            game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+            game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+        f0 = np.array(game.get_pixels(0, 0, 64, 64))
         bg = int(np.bincount(f0.flatten(), minlength=16).argmax())
         # Try solution transfer from previous level first
         if prev_solution and level_idx > 0:
@@ -481,14 +525,17 @@ class BFSSolver:
             hidden_fields = self._probe_hidden_fields(game, actions)
             if hidden_fields:
                 logger.info(f"BFS L{level_idx}: RETRY with hidden fields: {hidden_fields}")
-                # FIX 3: Use exactly 2 RESET calls (not 3) to match the first pass baseline
-                game2 = self.game_cls()
-                game2.set_level(level_idx)
-                game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-                r0_2 = game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-                if not r0_2.frame:
-                    return None
-                f0_2 = np.array(r0_2.frame[-1])
+                # [v12] rebuild the SAME baseline as the first pass (chained
+                # when possible — FIX 3 generalized)
+                game2 = None
+                if level_idx > 0 and all(i in self.solutions for i in range(level_idx)):
+                    game2 = self._make_start_state(level_idx)
+                if game2 is None:
+                    game2 = self.game_cls()
+                    game2.set_level(level_idx)
+                    game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+                    game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+                f0_2 = np.array(game2.get_pixels(0, 0, 64, 64))
                 remaining = max(30, self.bfs_timeout - elapsed_first)
                 res2, stats2 = self._bfs_search(game2, f0_2, actions, level_idx,
                                                 hidden_fields, remaining, max_states,
@@ -602,6 +649,11 @@ class BFSSolver:
                 logger.info(f"BFS L{level_idx}: greedy frontier persisted ({len(heap)} nodes)")
             except Exception as e:
                 logger.warning(f"greedy frontier persist failed: {e}")
+        elif frontier_path and not heap and os.path.exists(frontier_path):
+            # [v12] search space exhausted — remove stale frontier so future
+            # passes don't resume a dead end
+            try: os.unlink(frontier_path)
+            except: pass
         return None, (explored, len(visited), time.time() - t0)
 
     def _bfs_search_fifo(self, game, f0, actions, level_idx, hidden_fields,
@@ -722,6 +774,9 @@ class BFSSolver:
                 logger.info(f"BFS L{level_idx}: frontier persisted ({len(queue)} nodes)")
             except Exception as e:
                 logger.warning(f"BFS L{level_idx}: frontier persist failed: {e}")
+        elif frontier_path and not queue and os.path.exists(frontier_path):
+            try: os.unlink(frontier_path)
+            except: pass
         return None, (explored, len(visited), time.time() - t0)
     def _try_transfer(self, game, level_idx, prev_solution, f1):
         """Transfer previous level's solution to current level."""
@@ -949,7 +1004,10 @@ class MyAgent(Agent):
         """Initialize BFS solver on first call."""
         src, cls = find_game_source_and_class(s.game_id, s.arc_env)
         if src:
-            s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=180,
+            # [v12] V12_BFS_TIMEOUT lets the harness cap in-play solving when
+            # levels are expected to come from the offline cache
+            bfs_to = float(os.environ.get('V12_BFS_TIMEOUT', 180))
+            s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=bfs_to,
                                workers=HW['workers'])
             if s._bfs.load():
                 logger.info(f"BFS: loaded {cls} from {src}")
