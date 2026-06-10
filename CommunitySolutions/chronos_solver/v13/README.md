@@ -116,3 +116,29 @@ python CommunitySolutions/chronos_solver/v13/play_game.py --game ls20 --fast
 
 Frontier checkpoints live in `/tmp/v13_frontier_<game>_L<n>.*.pkl`;
 solutions live in `v13_bfs_cache_<game>.json` next to the agent.
+
+## Full workflow (the three commands that matter)
+
+```bash
+source .venv312/bin/activate   # from repo root
+
+# 1. SOLVE — sweep all 25 games, 3 rounds, resumable, Ctrl-C-safe.
+#    Solutions -> v13_bfs_cache_<game>.json
+#    Live status -> v13_progress.json | Full log -> v13_run.log
+python CommunitySolutions/chronos_solver/v13/solve_all.py
+#    (faster shallow sweep: --rounds 1 --level-budget 300)
+
+# 2. VERIFY — after (or during) the sweep: replay every cache through the
+#    real environment and collect official scorecards.
+#    Output -> v13_scorecards.json + per-game summary table
+python CommunitySolutions/chronos_solver/v13/verify_all.py
+
+# 3. INSPECT — any game where env replay completes fewer levels than the
+#    cache claims is a replay desync (report it); any level still missing
+#    is solver work for the next iteration.
+cat CommunitySolutions/chronos_solver/v13/v13_scorecards.json
+```
+
+Keep the Mac awake during the sweep (`caffeinate -is` in a spare terminal).
+A full 3-round sweep is roughly 18-24h; Round 1 alone (~7-9h) banks most
+of the readily solvable levels.

@@ -8,7 +8,7 @@
   },
   "stuck_at": 2
  },
- "updated": "2026-06-10 19:19:25",
+ "updated": "2026-06-10 19:24:36",
  "bp35": {
   "status": "solving",
   "levels": 9,
@@ -38,7 +38,8 @@
   "status": "solving",
   "levels": 6,
   "solved": {
-   "0": 20
+   "0": 20,
+   "1": 42
   }
  }
 }
