@@ -17,6 +17,14 @@ iterates on it with pure symbolic search + CNN fallback. No LLM anywhere.
 
 Replay through the real env: **5/7 levels, scorecard 53.57** (was 3.57).
 
+## Multi-game sweep (sandbox quick-wins; deep levels → run solve_all.py)
+
+Banked so far (`v12_bfs_cache_<game>.json`): ls20 5 lvls (13/45/39/43/44),
+ar25 2 (15/11), cd82 2 (5/6), m0r0 2 (15/23), dc22 1 (20), ft09 1 (4),
+lp85 1 (5), r11l 1 (3), s5i5 1 (13), sp80 1 (4) — **17 levels, 10 games**.
+Still cold (need longer budgets): bp35, cn04, g50t, ka59, lf52, re86, sb26,
+sc25, sk48, su15, tn36, tr87, tu93, vc33, wa30.
+
 ## Bugs found in v19 (each killed levels)
 
 1. **`depth < 30` BFS cap** silently truncated any solution longer than 30

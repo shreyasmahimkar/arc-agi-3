@@ -258,10 +258,11 @@ class BFSSolver:
             # rollout. The player's activity band can't stay hot in all
             # directions, so this won't swallow real game state.
             hot_sets = []
+            H = f0.shape[0]
             for act_id, data in actions[:4]:
                 g = self._restore(base)
                 prev = f0
-                row_hits = np.zeros(64, dtype=np.int32)
+                row_hits = np.zeros(H, dtype=np.int32)
                 steps = 0
                 for _ in range(8):
                     try:
@@ -280,7 +281,7 @@ class BFSSolver:
                     prev = f
                 if steps >= 4:
                     hot_sets.append(set(np.where(row_hits >= int(steps * 0.75))[0].tolist()))
-            mask = np.zeros((64, 64), dtype=bool)
+            mask = np.zeros(f0.shape, dtype=bool)
             if inter is not None:
                 mask |= inter
             if len(hot_sets) >= 2:
@@ -288,7 +289,7 @@ class BFSSolver:
                 if 0 < len(hot_rows) <= 8:
                     mask[sorted(hot_rows), :] = True
             n = int(mask.sum())
-            if 0 < n <= 768:  # sanity cap: don't mask real puzzle content
+            if 0 < n <= max(2, f0.size // 5):  # sanity cap: don't mask real puzzle content
                 logger.info(f"BFS: transient mask covers {n} px / rows {sorted(set(np.where(mask.any(axis=1))[0].tolist()))}")
                 return mask
             return None
@@ -380,14 +381,16 @@ class BFSSolver:
             except:
                 pass
         actions.extend(deferred)
-        # Click actions
+        # Click actions ([v12] shape-aware: grids are not always 64x64)
         if 6 in avail:
             t0 = time.time()
             seen_effects = set()
-            for y in range(0, 64, 2):
+            H, W = f0.shape[:2]
+            step = 2 if max(H, W) > 32 else 1
+            for y in range(0, H, step):
                 if time.time() - t0 > self.scan_timeout:
                     break
-                for x in range(0, 64, 2):
+                for x in range(0, W, step):
                     if f0[y, x] == bg:
                         continue
                     g = self._restore(base)
@@ -420,19 +423,24 @@ class BFSSolver:
         try:
             g = self.game_cls()
             g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-            g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+            r = g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
             for li in range(level_idx):
                 sol = self.solutions.get(li)
                 if sol is None:
                     return None
                 for a, d in sol:
                     ai = ActionInput(id=GameAction.from_id(a), data=d) if d else ActionInput(id=GameAction.from_id(a))
-                    g.perform_action(ai, raw=True)
+                    r = g.perform_action(ai, raw=True)
                 if g._current_level_index != li + 1:
                     logger.warning(f"BFS: chained replay desynced at L{li} "
                                    f"(at level {g._current_level_index})")
                     return None
-            return g
+            if not r.frame:
+                return None
+            # NOTE: frames must come from perform_action (camera-rendered,
+            # 64x64) — get_pixels() returns the raw grid in native size and
+            # the two are NOT comparable.
+            return g, np.array(r.frame[-1])
         except Exception as e:
             logger.warning(f"BFS: chained baseline failed: {e}")
             return None
@@ -446,16 +454,20 @@ class BFSSolver:
             logger.info(f"BFS L{level_idx}: cache hit ({len(self.solutions[level_idx])} actions)")
             return self.solutions[level_idx]
         game = None
+        f0 = None
         if level_idx > 0 and all(i in self.solutions for i in range(level_idx)):
-            game = self._make_start_state(level_idx)
-            if game is not None:
+            res = self._make_start_state(level_idx)
+            if res is not None:
+                game, f0 = res
                 logger.info(f"BFS L{level_idx}: using TRUE chained baseline (replayed L0..L{level_idx-1})")
         if game is None:
             game = self.game_cls()
             game.set_level(level_idx)
             game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-            game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-        f0 = np.array(game.get_pixels(0, 0, 64, 64))
+            r0 = game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+            if not r0.frame:
+                return None
+            f0 = np.array(r0.frame[-1])
         bg = int(np.bincount(f0.flatten(), minlength=16).argmax())
         # Try solution transfer from previous level first
         if prev_solution and level_idx > 0:
@@ -470,8 +482,10 @@ class BFSSolver:
             for warmup_id in [a for a in avail if a <= 4]:
                 g_warmup = copy.deepcopy(game)
                 try:
-                    g_warmup.perform_action(ActionInput(id=GameAction.from_id(warmup_id)), raw=True)
-                    f_after = np.array(g_warmup.get_pixels(0, 0, 64, 64))
+                    r_w = g_warmup.perform_action(ActionInput(id=GameAction.from_id(warmup_id)), raw=True)
+                    if not r_w.frame:
+                        continue
+                    f_after = np.array(r_w.frame[-1])
                     warmup_actions = self._scan_actions(g_warmup, f_after, bg)
                     if warmup_actions:
                         logger.info(f"BFS L{level_idx}: UNLOCKED with ACTION{warmup_id}! {len(warmup_actions)} actions")
@@ -528,14 +542,19 @@ class BFSSolver:
                 # [v12] rebuild the SAME baseline as the first pass (chained
                 # when possible — FIX 3 generalized)
                 game2 = None
+                f0_2 = None
                 if level_idx > 0 and all(i in self.solutions for i in range(level_idx)):
-                    game2 = self._make_start_state(level_idx)
+                    res2 = self._make_start_state(level_idx)
+                    if res2 is not None:
+                        game2, f0_2 = res2
                 if game2 is None:
                     game2 = self.game_cls()
                     game2.set_level(level_idx)
                     game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-                    game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
-                f0_2 = np.array(game2.get_pixels(0, 0, 64, 64))
+                    r0_2 = game2.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+                    if not r0_2.frame:
+                        return None
+                    f0_2 = np.array(r0_2.frame[-1])
                 remaining = max(30, self.bfs_timeout - elapsed_first)
                 res2, stats2 = self._bfs_search(game2, f0_2, actions, level_idx,
                                                 hidden_fields, remaining, max_states,
@@ -575,16 +594,21 @@ class BFSSolver:
         heap = []
         explored = 0
         counter = 0
+        root_sig = self._state_hash(game, f0, hidden_fields, mask=None)
         if frontier_path and os.path.exists(frontier_path):
             try:
                 with open(frontier_path, 'rb') as fh:
                     st = pickle.load(fh)
-                visited, heap, explored, counter = st['visited'], st['heap'], st['explored'], st['counter']
-                logger.info(f"BFS L{level_idx}: resumed greedy frontier ({len(heap)} nodes, {len(visited)} visited)")
+                if st.get('root') != root_sig:
+                    logger.info(f"BFS L{level_idx}: greedy frontier baseline changed — discarding")
+                else:
+                    visited, heap, explored, counter = st['visited'], st['heap'], st['explored'], st['counter']
+                    logger.info(f"BFS L{level_idx}: resumed greedy frontier ({len(heap)} nodes, {len(visited)} visited)")
             except Exception as e:
                 logger.warning(f"greedy frontier resume failed: {e}")
                 visited, heap, explored, counter = set(), [], 0, 0
         if not heap:
+            visited = set(); explored = 0; counter = 0
             visited.add(self._state_hash(game, f0, hidden_fields, mask=mask))
             sig0 = self._hist_sig(f0, sig_mask)
             heapq.heappush(heap, (0, 0, 0, self._snap(game), [], sig0))
@@ -645,7 +669,8 @@ class BFSSolver:
             try:
                 with open(frontier_path, 'wb') as fh:
                     pickle.dump({'visited': visited, 'heap': heap,
-                                 'explored': explored, 'counter': counter}, fh, -1)
+                                 'explored': explored, 'counter': counter,
+                                 'root': root_sig}, fh, -1)
                 logger.info(f"BFS L{level_idx}: greedy frontier persisted ({len(heap)} nodes)")
             except Exception as e:
                 logger.warning(f"greedy frontier persist failed: {e}")
@@ -667,17 +692,23 @@ class BFSSolver:
         visited = set()
         queue = deque()
         explored = 0
-        # [v12] resumable search: reload a persisted frontier if present
+        root_sig = self._state_hash(game, f0, hidden_fields, mask=None)
+        # [v12] resumable search: reload a persisted frontier if present —
+        # but only if it was built from the SAME baseline state
         if frontier_path and os.path.exists(frontier_path):
             try:
                 with open(frontier_path, 'rb') as fh:
                     st = pickle.load(fh)
-                visited, queue, explored = st['visited'], st['queue'], st['explored']
-                logger.info(f"BFS L{level_idx}: resumed frontier ({len(queue)} nodes, {len(visited)} visited, {explored} explored)")
+                if st.get('root') != root_sig:
+                    logger.info(f"BFS L{level_idx}: frontier baseline changed — discarding stale frontier")
+                else:
+                    visited, queue, explored = st['visited'], st['queue'], st['explored']
+                    logger.info(f"BFS L{level_idx}: resumed frontier ({len(queue)} nodes, {len(visited)} visited, {explored} explored)")
             except Exception as e:
                 logger.warning(f"BFS L{level_idx}: frontier resume failed: {e}")
                 visited, queue, explored = set(), deque(), 0
         if not queue:
+            visited = set(); explored = 0
             h0 = self._state_hash(game, f0, hidden_fields, mask=mask)
             visited.add(h0)
             queue.append((self._snap(game), [], 0))
@@ -770,7 +801,7 @@ class BFSSolver:
             try:
                 with open(frontier_path, 'wb') as fh:
                     pickle.dump({'visited': visited, 'queue': queue,
-                                 'explored': explored}, fh, -1)
+                                 'explored': explored, 'root': root_sig}, fh, -1)
                 logger.info(f"BFS L{level_idx}: frontier persisted ({len(queue)} nodes)")
             except Exception as e:
                 logger.warning(f"BFS L{level_idx}: frontier persist failed: {e}")
