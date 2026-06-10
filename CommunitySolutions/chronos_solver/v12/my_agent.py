@@ -190,16 +190,45 @@ def _bfs_expand_task(args):
         if sig_mask is not None:
             fs = f.copy(); fs[sig_mask] = 0
         sig = tuple(np.bincount(fs.flatten(), minlength=16).tolist())
-        return (h, win, BFSSolver._snap(g), sig)
+        return (h, win, BFSSolver._snap(g), sig,
+                f.astype(np.uint8).tobytes(), f.shape)
     except Exception:
         return None
 
+def _dyn_clicks(frame, limit=12):
+    """[v12] dynamic click targets from the CURRENT frame: centroids of
+    non-background color regions. Selection/toggle games create new
+    clickable objects as the board changes — a click list scanned once at
+    the root cannot reach them."""
+    try:
+        cnt = np.bincount(frame.flatten(), minlength=16)
+        bg = int(cnt.argmax())
+        out = []
+        for c in range(16):
+            if c == bg or cnt[c] == 0 or cnt[c] > frame.size // 2:
+                continue
+            ys, xs = np.where(frame == c)
+            out.append((int(cnt[c]), int(np.median(xs)), int(np.median(ys))))
+        out.sort()
+        return [(6, {'x': x, 'y': y, 'game_id': 'bfs'}) for _, x, y in out[:limit]]
+    except Exception:
+        return []
+
 def _bfs_expand_node(args):
     """[v12-speed] Worker: restore ONE snapshot, apply ALL actions.
-    Ships each snapshot to the pool once instead of once per action."""
-    snap, actions, level_idx = args
+    Ships each snapshot to the pool once instead of once per action.
+    When `dyn` is set and the node frame is provided, click targets are
+    augmented from the current frame's object centroids."""
+    snap, actions, level_idx, fbytes, fshape, dyn = args
+    acts = list(actions)
+    if dyn and fbytes is not None:
+        frame = np.frombuffer(fbytes, dtype=np.uint8).reshape(fshape)
+        seen = {(d.get('x'), d.get('y')) for a, d in acts if a == 6 and d}
+        for a, d in _dyn_clicks(frame):
+            if (d['x'], d['y']) not in seen:
+                acts.append((a, d))
     out = []
-    for act_id, data in actions:
+    for act_id, data in acts:
         res = _bfs_expand_task((snap, act_id, data, level_idx))
         out.append((act_id, data, res))
     return out
@@ -381,35 +410,40 @@ class BFSSolver:
             except:
                 pass
         actions.extend(deferred)
-        # Click actions ([v12] shape-aware: grids are not always 64x64)
+        # Click actions ([v12] shape-aware: grids are not always 64x64).
+        # Two passes: non-background pixels first, then background pixels —
+        # selection-style games (e.g. vc33) take clicks on empty cells.
         if 6 in avail:
             t0 = time.time()
             seen_effects = set()
             H, W = f0.shape[:2]
             step = 2 if max(H, W) > 32 else 1
-            for y in range(0, H, step):
+            for probe_bg in (False, True):
                 if time.time() - t0 > self.scan_timeout:
                     break
-                for x in range(0, W, step):
-                    if f0[y, x] == bg:
-                        continue
-                    g = self._restore(base)
-                    try:
-                        r = g.perform_action(
-                            ActionInput(id=GameAction.ACTION6, data={'x': x, 'y': y, 'game_id': 'bfs'}),
-                            raw=True
-                        )
-                        if not r.frame:
+                for y in range(0, H, step):
+                    if time.time() - t0 > self.scan_timeout:
+                        break
+                    for x in range(0, W, step):
+                        if (f0[y, x] == bg) != probe_bg:
                             continue
-                        f = np.array(r.frame[-1])
-                        diff = np.sum(f0 != f)
-                        if diff > 0:
-                            effect_hash = hashlib.md5(f.tobytes()).hexdigest()[:12]
-                            if effect_hash not in seen_effects:
-                                seen_effects.add(effect_hash)
-                                actions.append((6, {'x': x, 'y': y, 'game_id': 'bfs'}))
-                    except:
-                        pass
+                        g = self._restore(base)
+                        try:
+                            r = g.perform_action(
+                                ActionInput(id=GameAction.ACTION6, data={'x': x, 'y': y, 'game_id': 'bfs'}),
+                                raw=True
+                            )
+                            if not r.frame:
+                                continue
+                            f = np.array(r.frame[-1])
+                            diff = np.sum(f0 != f)
+                            if diff > 0:
+                                effect_hash = hashlib.md5(f.tobytes()).hexdigest()[:12]
+                                if effect_hash not in seen_effects:
+                                    seen_effects.add(effect_hash)
+                                    actions.append((6, {'x': x, 'y': y, 'game_id': 'bfs'}))
+                        except:
+                            pass
         # [v12] if NOTHING was effective, report empty so warmup-unlock runs
         if len(actions) == len(deferred):
             return []
@@ -594,13 +628,14 @@ class BFSSolver:
         heap = []
         explored = 0
         counter = 0
+        dyn = any(a == 6 for a, _ in actions)
         root_sig = self._state_hash(game, f0, hidden_fields, mask=None)
         if frontier_path and os.path.exists(frontier_path):
             try:
                 with open(frontier_path, 'rb') as fh:
                     st = pickle.load(fh)
-                if st.get('root') != root_sig:
-                    logger.info(f"BFS L{level_idx}: greedy frontier baseline changed — discarding")
+                if st.get('root') != root_sig or st.get('fmt') != 2:
+                    logger.info(f"BFS L{level_idx}: greedy frontier baseline/format changed — discarding")
                 else:
                     visited, heap, explored, counter = st['visited'], st['heap'], st['explored'], st['counter']
                     logger.info(f"BFS L{level_idx}: resumed greedy frontier ({len(heap)} nodes, {len(visited)} visited)")
@@ -611,9 +646,10 @@ class BFSSolver:
             visited = set(); explored = 0; counter = 0
             visited.add(self._state_hash(game, f0, hidden_fields, mask=mask))
             sig0 = self._hist_sig(f0, sig_mask)
-            heapq.heappush(heap, (0, 0, 0, self._snap(game), [], sig0))
+            heapq.heappush(heap, (0, 0, 0, self._snap(game), [], sig0,
+                                  f0.astype(np.uint8).tobytes(), f0.shape))
         pool = None
-        if self.workers > 1:
+        if self.workers > 1 and self._snap(game)[0] == 'p':
             try:
                 import multiprocessing as mp
                 # macOS requires 'spawn' (fork deadlocks torch); Linux uses 'fork'
@@ -627,8 +663,8 @@ class BFSSolver:
             batch, metas = [], []
             take = max(1, (self.workers * 4) if pool else 1)
             while heap and len(batch) < take:
-                negprog, depth, _, snap, hist, sig = heapq.heappop(heap)
-                batch.append((snap, actions, level_idx))
+                negprog, depth, _, snap, hist, sig, fbytes, fshape = heapq.heappop(heap)
+                batch.append((snap, actions, level_idx, fbytes, fshape, dyn))
                 metas.append((negprog, depth, hist, sig))
             if pool:
                 try:
@@ -645,7 +681,7 @@ class BFSSolver:
                 for act_id, data, res in node_out:
                     if res is None:
                         continue
-                    h, win, child_snap, child_sig = res
+                    h, win, child_snap, child_sig, rfb, rfs = res
                     if h in visited:
                         continue
                     visited.add(h)
@@ -662,7 +698,8 @@ class BFSSolver:
                     prog = -negprog + (1 if child_sig != sig else 0)
                     if depth < 400:
                         counter += 1
-                        heapq.heappush(heap, (-prog, depth + 1, counter, child_snap, new_hist, child_sig))
+                        heapq.heappush(heap, (-prog, depth + 1, counter, child_snap,
+                                              new_hist, child_sig, rfb, rfs))
         if pool:
             pool.terminate()
         if frontier_path and heap:
@@ -670,7 +707,7 @@ class BFSSolver:
                 with open(frontier_path, 'wb') as fh:
                     pickle.dump({'visited': visited, 'heap': heap,
                                  'explored': explored, 'counter': counter,
-                                 'root': root_sig}, fh, -1)
+                                 'root': root_sig, 'fmt': 2}, fh, -1)
                 logger.info(f"BFS L{level_idx}: greedy frontier persisted ({len(heap)} nodes)")
             except Exception as e:
                 logger.warning(f"greedy frontier persist failed: {e}")
@@ -692,6 +729,7 @@ class BFSSolver:
         visited = set()
         queue = deque()
         explored = 0
+        dyn = any(a == 6 for a, _ in actions)
         root_sig = self._state_hash(game, f0, hidden_fields, mask=None)
         # [v12] resumable search: reload a persisted frontier if present —
         # but only if it was built from the SAME baseline state
@@ -699,8 +737,8 @@ class BFSSolver:
             try:
                 with open(frontier_path, 'rb') as fh:
                     st = pickle.load(fh)
-                if st.get('root') != root_sig:
-                    logger.info(f"BFS L{level_idx}: frontier baseline changed — discarding stale frontier")
+                if st.get('root') != root_sig or st.get('fmt') != 2:
+                    logger.info(f"BFS L{level_idx}: frontier baseline/format changed — discarding stale frontier")
                 else:
                     visited, queue, explored = st['visited'], st['queue'], st['explored']
                     logger.info(f"BFS L{level_idx}: resumed frontier ({len(queue)} nodes, {len(visited)} visited, {explored} explored)")
@@ -711,11 +749,13 @@ class BFSSolver:
             visited = set(); explored = 0
             h0 = self._state_hash(game, f0, hidden_fields, mask=mask)
             visited.add(h0)
-            queue.append((self._snap(game), [], 0))
+            queue.append((self._snap(game), [], 0,
+                          f0.astype(np.uint8).tobytes(), f0.shape))
         t0 = time.time()
-        # [v12] optional multiprocess expansion pool
+        # [v12] optional multiprocess expansion pool. Some games hold
+        # unpicklable members (lambdas) — those must run sequential.
         pool = None
-        if self.workers > 1:
+        if self.workers > 1 and self._snap(game)[0] == 'p':
             try:
                 import multiprocessing as mp
                 pool = mp.get_context(HW['mp_ctx']).Pool(
@@ -724,6 +764,8 @@ class BFSSolver:
             except Exception as e:
                 logger.warning(f"BFS: pool unavailable ({e}); sequential")
                 pool = None
+        elif self.workers > 1:
+            logger.info("BFS: game state not picklable — sequential expansion")
 
         def _finish(sol, elapsed):
             if pool:
@@ -737,63 +779,47 @@ class BFSSolver:
             return sol, (explored, len(visited), elapsed)
 
         while queue and explored < max_states and (time.time() - t0) < time_budget:
+            # batch a slice of the frontier (one task per node so each
+            # snapshot ships to the pool exactly once); the same node-level
+            # expansion (incl. dynamic clicks) runs sequentially without pool
+            batch, metas = [], []
+            take = (self.workers * 4) if pool is not None else 1
+            while queue and len(batch) < take:
+                snap, hist, depth, fbytes, fshape = queue.popleft()
+                batch.append((snap, actions, level_idx, fbytes, fshape, dyn))
+                metas.append((hist, depth))
             if pool is not None:
-                # batch a slice of the frontier across workers (one task per
-                # node so each snapshot ships to the pool exactly once)
-                batch, metas = [], []
-                while queue and len(batch) < self.workers * 4:
-                    snap, hist, depth = queue.popleft()
-                    batch.append((snap, actions, level_idx))
-                    metas.append((hist, depth))
                 try:
                     node_results = pool.map(_bfs_expand_node, batch,
                                             chunksize=max(1, len(batch) // self.workers))
                 except Exception as e:
                     logger.warning(f"BFS: pool batch failed ({e})")
                     break
-                wins = []
-                for node_out, (hist, depth) in zip(node_results, metas):
-                    explored += len(node_out)
-                    for act_id, data, res in node_out:
-                        if res is None:
-                            continue
-                        h, win, child_snap, _sig = res
-                        if h in visited:
-                            continue
-                        visited.add(h)
-                        new_hist = hist + [(act_id, data)]
-                        if win:
-                            wins.append(new_hist)
-                            continue
-                        if depth < 200:
-                            queue.append((child_snap, new_hist, depth + 1))
-                if wins:
-                    best = min(wins, key=len)
-                    return _finish(best, time.time() - t0)
-                continue
-            snap, hist, depth = queue.popleft()
-            for act_id, data in actions:
-                g2 = self._restore(snap)
-                try:
-                    ai = ActionInput(id=GameAction.from_id(act_id), data=data) if data else ActionInput(id=GameAction.from_id(act_id))
-                    r = g2.perform_action(ai, raw=True)
-                except:
-                    continue
-                explored += 1
-                if not r.frame:
-                    continue
-                f = np.array(r.frame[-1])
-                h = self._state_hash(g2, f, hidden_fields, mask=mask)
-                if h in visited:
-                    continue
-                visited.add(h)
-                new_hist = hist + [(act_id, data)]
-                if r.levels_completed > level_idx or g2._current_level_index > level_idx:
-                    return _finish(new_hist, time.time() - t0)
-                # [v12] depth cap raised 30 → 200: visited-dedup already bounds
-                # the search; 30 silently truncated solutions in larger mazes
-                if depth < 200:
-                    queue.append((self._snap(g2), new_hist, depth + 1))
+            else:
+                _BFS_W['mask'] = mask; _BFS_W['sig_mask'] = mask
+                _BFS_W['hidden'] = hidden_fields
+                node_results = [_bfs_expand_node(a) for a in batch]
+            wins = []
+            for node_out, (hist, depth) in zip(node_results, metas):
+                explored += len(node_out)
+                for act_id, data, res in node_out:
+                    if res is None:
+                        continue
+                    h, win, child_snap, _sig, rfb, rfs = res
+                    if h in visited:
+                        continue
+                    visited.add(h)
+                    new_hist = hist + [(act_id, data)]
+                    if win:
+                        wins.append(new_hist)
+                        continue
+                    # [v12] depth cap raised 30 → 200: visited-dedup already
+                    # bounds the search; 30 silently truncated longer mazes
+                    if depth < 200:
+                        queue.append((child_snap, new_hist, depth + 1, rfb, rfs))
+            if wins:
+                best = min(wins, key=len)
+                return _finish(best, time.time() - t0)
         if pool:
             pool.terminate()
         # [v12] persist frontier for a future resumed invocation
@@ -801,7 +827,8 @@ class BFSSolver:
             try:
                 with open(frontier_path, 'wb') as fh:
                     pickle.dump({'visited': visited, 'queue': queue,
-                                 'explored': explored, 'root': root_sig}, fh, -1)
+                                 'explored': explored, 'root': root_sig,
+                                 'fmt': 2}, fh, -1)
                 logger.info(f"BFS L{level_idx}: frontier persisted ({len(queue)} nodes)")
             except Exception as e:
                 logger.warning(f"BFS L{level_idx}: frontier persist failed: {e}")

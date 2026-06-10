@@ -19,11 +19,21 @@ Replay through the real env: **5/7 levels, scorecard 53.57** (was 3.57).
 
 ## Multi-game sweep (sandbox quick-wins; deep levels → run solve_all.py)
 
-Banked so far (`v12_bfs_cache_<game>.json`): ls20 5 lvls (13/45/39/43/44),
-ar25 2 (15/11), cd82 2 (5/6), m0r0 2 (15/23), dc22 1 (20), ft09 1 (4),
-lp85 1 (5), r11l 1 (3), s5i5 1 (13), sp80 1 (4) — **17 levels, 10 games**.
-Still cold (need longer budgets): bp35, cn04, g50t, ka59, lf52, re86, sb26,
-sc25, sk48, su15, tn36, tr87, tu93, vc33, wa30.
+Banked so far (`v12_bfs_cache_<game>.json`) — **31 levels, 13 games**:
+tu93 ALL 9 ✓, ls20 5 (L5 frontier ~85k states, L6 cold), vc33 4 (L4 in
+progress), ar25 2, cd82 2, m0r0 2, plus L0 of dc22/ft09/lp85/r11l/s5i5/
+sk48/sp80. Deep holdouts for solve_all.py on real hardware: ls20 L5-6,
+ar25 L2+, cd82 L2+, vc33 L4+, bp35, cn04, g50t, ka59, lf52, re86, sb26,
+sc25, su15, tn36 (unpicklable → sequential), tr87, wa30.
+
+Two scanner upgrades from this sweep (both in `my_agent.py`):
+- background-pixel click probing (selection games take clicks on empty cells)
+- **dynamic click targets**: each search node carries its frame; workers add
+  clicks at the current frame's object centroids. vc33 L3 was UNREACHABLE
+  with root-scanned clicks (23k states exhausted) and solved in 9.7s with
+  dynamic targets.
+- games with unpicklable state (tn36's lambdas) auto-fall back to
+  sequential expansion.
 
 ## Bugs found in v19 (each killed levels)
 
