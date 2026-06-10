@@ -5,7 +5,40 @@
   "solved": {
    "0": 15,
    "1": 11
-  }
+  },
+  "stuck_at": 2
  },
- "updated": "2026-06-10 17:43:04"
+ "updated": "2026-06-10 19:19:25",
+ "bp35": {
+  "status": "solving",
+  "levels": 9,
+  "solved": {
+   "0": 23
+  },
+  "stuck_at": 1
+ },
+ "cd82": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {
+   "0": 5,
+   "1": 6
+  },
+  "stuck_at": 2
+ },
+ "cn04": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {
+   "0": 13
+  },
+  "stuck_at": 1
+ },
+ "dc22": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {
+   "0": 20
+  }
+ }
 }

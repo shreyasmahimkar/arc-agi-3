@@ -1261,8 +1261,13 @@ class MyAgent(Agent):
         zeros=torch.zeros(5,64,64,dtype=torch.float32)
         return torch.cat([oh,aug,zeros],0)
     def _train(s):
-        if len(s.buf)<s.bsz:return
-        indices=np.random.choice(len(s.buf),s.bsz,replace=False)
+        # [v13 FIX] adaptive batch: with the RTX profile's bsz=2048 most
+        # levels never accumulate a full batch, so the old gate
+        # (len(buf) < bsz -> return) silently disabled training exactly on
+        # the biggest hardware. Train with what we have past a small floor.
+        bsz = min(s.bsz, len(s.buf))
+        if bsz < 64: return
+        indices=np.random.choice(len(s.buf),bsz,replace=False)
         batch=[s.buf[i] for i in indices]
         states=torch.stack([s._frame_to_tensor(e['s']).to(s.device) for e in batch])
         acts=torch.tensor([e['a'] for e in batch],dtype=torch.long,device=s.device)
@@ -1378,9 +1383,10 @@ class MyAgent(Agent):
                         torch.backends.cuda.matmul.allow_tf32 = True
                         torch.backends.cudnn.allow_tf32 = True
                     s.net = ForgeNet(s.IN, s.G, mult=HW['net_mult']).to(s.device)
-                    if HW['compile']:
-                        try: s.net = torch.compile(s.net)
-                        except: pass
+                    # [v13 FIX] load pretrained weights BEFORE torch.compile:
+                    # compile wraps the module and prefixes state_dict keys
+                    # with '_orig_mod.', so loading after compile silently
+                    # matches zero keys and drops the checkpoint.
                     for wp in ['/kaggle/input/forge-pretrained-weights/pretrained_weights.pt',
                                'pretrained_weights.pt']:
                         try:
@@ -1390,6 +1396,9 @@ class MyAgent(Agent):
                                 for k in list(state.keys()):
                                     if k in ms and state[k].shape==ms[k].shape:ms[k]=state[k]
                                 s.net.load_state_dict(ms);break
+                        except: pass
+                    if HW['compile']:
+                        try: s.net = torch.compile(s.net)
                         except: pass
                     s.opt = optim.Adam(s.net.parameters(), lr=0.0003)
                 s.pt=None;s.pai=None;s.pr=None;s.ph=None
@@ -1428,8 +1437,10 @@ class MyAgent(Agent):
                                 # Advance prev_frame using the action result, not get_pixels()
                                 if result.frame:
                                     prev_frame = np.array(result.frame[-1], dtype=np.int64)
-                            if TORCH_AVAILABLE and len(s.buf) >= s.bsz:
-                                for _ in range(min(20, len(s.buf) // s.bsz)):
+                            # [v13 FIX] same adaptive-batch reasoning as _train:
+                            # demo counts are small; don't gate on full bsz
+                            if TORCH_AVAILABLE and len(s.buf) >= 64:
+                                for _ in range(min(20, max(1, len(s.buf) // min(s.bsz, len(s.buf))))):
                                     s._train()
                                 logger.info(f"CLTI: injected {len(prev_sol)} expert demos from L{lvl-1}")
                     except Exception as e:
@@ -1496,8 +1507,15 @@ class MyAgent(Agent):
                 else:
                     with torch.no_grad():
                         mem=s._get_aem_tensors()
-                        if mem[0] is not None:logits=s.net(tensor.unsqueeze(0),*mem).squeeze(0)
-                        else:logits=s.net(tensor.unsqueeze(0)).squeeze(0)
+                        if HW['amp']:
+                            # [v13] bf16 inference on Tensor Cores (cuda only)
+                            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                                if mem[0] is not None:logits=s.net(tensor.unsqueeze(0),*mem).squeeze(0)
+                                else:logits=s.net(tensor.unsqueeze(0)).squeeze(0)
+                            logits=logits.float()
+                        else:
+                            if mem[0] is not None:logits=s.net(tensor.unsqueeze(0),*mem).squeeze(0)
+                            else:logits=s.net(tensor.unsqueeze(0)).squeeze(0)
                     aidx,coords=s._sample(logits,avail,temp=0.5)
                 s._eps=max(s._eps_min,s._eps*s._eps_decay)
             elif s.la>=10:s._wd=True;aidx,coords=0,None
