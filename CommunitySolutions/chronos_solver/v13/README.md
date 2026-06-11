@@ -96,6 +96,27 @@ Two scanner upgrades from this sweep (both in `my_agent.py`):
   codebase: build local, deploy anywhere. Torch is optional — without it a
   numpy experience-bandit replaces the CNN fallback.
 
+## RTX 6000 readiness (audited twice; fixes applied)
+
+- pretrained weights load BEFORE `torch.compile` (compile prefixes
+  state-dict keys with `_orig_mod.`; the old order silently dropped them)
+- adaptive training batch `min(bsz, len(buf))` with floor 64 — the 2048
+  batch otherwise gated training OFF on small levels (CLTI too)
+- **GPU OOM backoff**: bsz=2048 × mult=4 stores ~40GB of activations at
+  64x64; on OOM the batch halves permanently and the run continues
+  (a 48GB Ada card WILL trigger this; expect a settle at 512-1024)
+- single H2D transfer per training batch (was bsz separate copies)
+- bf16 autocast inference + `cudnn.benchmark` for fixed 64x64 inputs
+- solver scripts set `CUDA_VISIBLE_DEVICES=''` before importing the agent:
+  the pre-solver is pure CPU, this avoids unsafe fork-after-CUDA-init in
+  the worker pools and gives max workers on big multi-core GPU boxes
+- caveats: the mult=1 checkpoint barely transfers into the 4x net (only
+  shape-matched layers load — train a mult=4 checkpoint if the CNN path
+  becomes the scorer), and NONE of the cuda branches have run on real
+  hardware yet — smoke-test with
+  `python v13/play_game.py --game ls20 --fast` and confirm the log says
+  `RTX_6000 device=cuda` before any long run.
+
 ## How to run
 
 ```bash

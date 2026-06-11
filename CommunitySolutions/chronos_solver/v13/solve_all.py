@@ -30,6 +30,12 @@ REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..'))
 sys.path.insert(0, os.path.join(REPO, 'arc-prize-2026-arc-agi-3', 'ARC-AGI-3-Agents'))
 sys.path.insert(0, HERE)
 
+# [v13] the offline solver is pure CPU. Hide the GPU BEFORE importing
+# my_agent: (a) the HW probe would otherwise initialize a CUDA context and
+# the BFS worker pools fork() afterwards — fork-after-CUDA-init is unsafe;
+# (b) the CPU profile maximizes worker count on big multi-core GPU boxes.
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",

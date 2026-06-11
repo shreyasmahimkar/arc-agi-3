@@ -108,11 +108,16 @@ def get_hw_profile():
             vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         except Exception:
             vram_gb = 0
+        p['vram_gb'] = round(vram_gb, 1)
         if vram_gb > 30:
-            # --- BEAST MODE: RTX PRO 6000 (48GB) ---
+            # --- BEAST MODE: RTX PRO 6000 Blackwell (96GB) or
+            #     RTX 6000 Ada (48GB) — detection is vram > 30GB either way.
+            #     Batch scales with VRAM; the _train OOM backoff adapts
+            #     further at runtime if needed.
             p.update(mode='RTX_6000',
                      workers=max(1, _mp.cpu_count() - 4),
-                     bsz=2048, buf_size=2_000_000, tfreq=2, net_mult=4,
+                     bsz=2048 if vram_gb > 80 else 1024,
+                     buf_size=2_000_000, tfreq=2, net_mult=4,
                      compile=hasattr(torch, 'compile'), amp=True)
         else:
             # --- CLOUD: STANDARD GPU (T4 16GB / Kaggle 2xT4) ---
@@ -130,7 +135,8 @@ def get_hw_profile():
 
 HW = get_hw_profile()
 logger.info(f"[v13] hardware profile: {HW['mode']} device={HW['device']} "
-            f"workers={HW['workers']} bsz={HW['bsz']} mp_ctx={HW['mp_ctx']}")
+            f"vram={HW.get('vram_gb', 'n/a')}GB workers={HW['workers']} "
+            f"bsz={HW['bsz']} mp_ctx={HW['mp_ctx']}")
 
 # ==================== [v13] PARALLEL BFS WORKERS ====================
 _BFS_W = {}
@@ -1269,26 +1275,42 @@ class MyAgent(Agent):
         if bsz < 64: return
         indices=np.random.choice(len(s.buf),bsz,replace=False)
         batch=[s.buf[i] for i in indices]
-        states=torch.stack([s._frame_to_tensor(e['s']).to(s.device) for e in batch])
+        # [v13] single H2D transfer: stack on CPU first (the old per-item
+        # .to(device) issued bsz separate copies — brutal at bsz=2048)
+        states=torch.stack([s._frame_to_tensor(e['s']) for e in batch]).to(s.device, non_blocking=True)
         acts=torch.tensor([e['a'] for e in batch],dtype=torch.long,device=s.device)
         rews=torch.tensor([e['r'] for e in batch],dtype=torch.float32,device=s.device)
         rews=torch.sigmoid(rews);s.opt.zero_grad()
-        if HW['amp']:
-            # RTX/T4: bfloat16 autocast on Tensor Cores
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        try:
+            if HW['amp']:
+                # RTX/T4: bfloat16 autocast on Tensor Cores
+                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    logits=s.net(states)
+                    acts_c=acts.clamp(0,logits.size(1)-1)
+                    sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
+                    loss=F.binary_cross_entropy_with_logits(sel,rews)
+                    p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
+            else:
+                # Mac M1 (MPS) / CPU: native FP32 for gradient stability
                 logits=s.net(states)
                 acts_c=acts.clamp(0,logits.size(1)-1)
                 sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
                 loss=F.binary_cross_entropy_with_logits(sel,rews)
                 p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
-        else:
-            # Mac M1 (MPS) / CPU: native FP32 for gradient stability
-            logits=s.net(states)
-            acts_c=acts.clamp(0,logits.size(1)-1)
-            sel=logits.gather(1,acts_c.unsqueeze(1)).squeeze(1)
-            loss=F.binary_cross_entropy_with_logits(sel,rews)
-            p=torch.sigmoid(logits);loss=loss-0.0001*p[:,:5].mean()-0.00001*p[:,5:].mean()
-        loss.backward();s.opt.step()
+            loss.backward();s.opt.step()
+        except (RuntimeError, MemoryError) as e:
+            if 'out of memory' not in str(e).lower():
+                raise
+            # [v13] OOM backoff: bsz=2048 x mult=4 ForgeNet stores ~40GB of
+            # activations at 64x64 — too much even for big cards. Halve the
+            # batch permanently and recover instead of crashing the run.
+            s.bsz = max(64, bsz // 2)
+            try:
+                if s.device is not None and s.device.type == 'cuda':
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
+            logger.warning(f"_train: GPU OOM — batch size backed off to {s.bsz}")
     def _get_aem_tensors(s):
         if len(s._aem_diffs)<2:return None,None,None
         M=len(s._aem_diffs)
@@ -1382,6 +1404,9 @@ class MyAgent(Agent):
                     if HW['mode'] == 'RTX_6000':
                         torch.backends.cuda.matmul.allow_tf32 = True
                         torch.backends.cudnn.allow_tf32 = True
+                    if HW['device'] == 'cuda':
+                        # fixed 64x64 input shapes → let cudnn pick best kernels
+                        torch.backends.cudnn.benchmark = True
                     s.net = ForgeNet(s.IN, s.G, mult=HW['net_mult']).to(s.device)
                     # [v13 FIX] load pretrained weights BEFORE torch.compile:
                     # compile wraps the module and prefixes state_dict keys
