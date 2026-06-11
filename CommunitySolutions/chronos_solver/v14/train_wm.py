@@ -365,6 +365,11 @@ def main():
         torch.save(state, args.out)                    # checkpoint per phase
         logger.info(f"tokenizer checkpointed -> {args.out}")
     else:
+        if "tokenizer" not in state:
+            raise SystemExit(
+                f"--phase {args.phase} needs a trained tokenizer but "
+                f"{args.out} has none (keys: {list(state) or 'no file'}). "
+                "Run with --phase tok first, or --phase all.")
         tok = Tokenizer(cfg).to(device)
         tok.load_state_dict(state["tokenizer"])
 
