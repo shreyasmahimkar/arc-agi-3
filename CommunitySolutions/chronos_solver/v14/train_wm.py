@@ -341,6 +341,12 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
         return loss / K, tok_correct / max(tok_total, 1)
 
     import time as _time
+    # Checkpoint EVERY epoch, keep the best by held-out accuracy.
+    # Lesson learned the expensive way: the old code saved belief/world_model
+    # only after ALL epochs — a download (or crash) mid-phase yielded a
+    # plm_weights.pt with just ['tokenizer'] and the agent fell back to the
+    # bandit with plm=OFF.
+    best_hacc = -1.0
     for ep in range(args.epochs):
         t_ep = _time.time()
         for step in range(args.steps_per_epoch):
@@ -356,16 +362,28 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
                 list(core.parameters()) + list(sim.parameters()), 1.0)
             opt.step()
         # GATE: accuracy on HELD-OUT GAMES = the generalization number
+        # (averaged over 8 batches — single-batch eval is too noisy to
+        # gate or best-select on)
         with torch.no_grad():
-            ht, ha, hr = episode_batch(tok_held or tok_train, 32)
-            _, hacc = rollout_loss(ht, ha, hr)
+            haccs = []
+            for _ in range(8):
+                ht, ha, hr = episode_batch(tok_held or tok_train, 32)
+                _, h1 = rollout_loss(ht, ha, hr)
+                haccs.append(h1)
+            hacc = sum(haccs) / len(haccs)
+        star = ""
+        if hacc > best_hacc:
+            best_hacc = hacc
+            # NOTE: save the UNcompiled module's weights (compile wraps
+            # state_dict keys with _orig_mod. — the v13 lesson, in reverse)
+            state["belief"] = core.state_dict()
+            state["world_model"] = sim.state_dict()
+            torch.save(state, args.out)
+            star = " *best, checkpointed*"
         logger.info(f"wm epoch {ep}: train_tok_acc {acc:.3f} "
                     f"HELDOUT_tok_acc {hacc:.3f} (gate: 0.90) "
-                    f"[{_time.time()-t_ep:.0f}s]")
-    # NOTE: save the UNcompiled module's weights (compile wraps state_dict
-    # keys with _orig_mod. — the v13 lesson, applied in reverse)
-    state["belief"] = core.state_dict()
-    state["world_model"] = sim.state_dict()
+                    f"[{_time.time()-t_ep:.0f}s]{star}")
+    logger.info(f"wm: best HELDOUT_tok_acc {best_hacc:.3f}")
 
 
 def main():
