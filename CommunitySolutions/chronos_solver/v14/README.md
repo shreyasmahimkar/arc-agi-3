@@ -121,11 +121,20 @@ and v13 caches are used ONLY as offline training data generators.
 ## Status
 
 - [x] architecture plan (this file)
-- [x] module skeletons in `plm/` (untested — sandbox was down; first task
-      on a live machine is `python -m plm.smoke`)
-- [x] data factory + trainer skeletons
-- [ ] harness files (my_agent.py etc.): copy from v13 with
-      `sed s/v13/v14/` when a shell is available — same structure, PLM
-      added as a fallback tier behind a `V14_PLM=1` env flag
-- [ ] Phase 0 run on Mac/RTX
+- [x] module skeletons in `plm/` incl. agent_plm runtime loop + smoke test
+      (untested — first task on a live machine: `python -m plm.smoke`)
+- [x] data factory (`gen_data.py`) + trainer (`train_wm.py`) skeletons
+- [x] `my_agent.py` harness wrapper (v13 pattern: Agent base, enum patch,
+      choose_action) — tier 1 PLM, tier 2 numpy bandit; survives missing
+      torch/weights/package. `V14_REQUIRE_WEIGHTS=1` disables an untrained
+      PLM in favor of the bandit.
+- [x] Kaggle submission notebook (`claude-code-v14-plm.ipynb`) — code +
+      weights ship via a `v14-plm` dataset; staging cell runs ast checks +
+      smoke test; rerun cell mirrors v13 (gateway curl, harness copy,
+      PYTHONUNBUFFERED + tee'd v14_run.log)
+- [ ] `python -m plm.smoke` on a live machine, then fix what it finds
+- [ ] Phase 0 data run on Mac/RTX (`gen_data.py`)
+- [ ] Phase 1/2 training (`train_wm.py`), gates in "Evaluation gates"
+- [ ] local replay eval: play_game.py from v13 pattern (copy harness
+      runner when a shell is available) on held-out games
 ```
