@@ -65,33 +65,53 @@ python train_wm.py --phase all --shards /data/v14_shards \
 
 Output: `plm_weights.pt` (tokenizer + belief + world_model state dicts).
 
-### Stage 2 on vast.ai (RTX PRO 6000, pytorch image, Jupyter)
+### Stage 2 on vast.ai — step by step
 
-One-time repo cleanup already done (old `.venv` and the 2.8GB v11 wheels
-zip deleted; .gitignore prevents their return). KEEP `.venv312` — that is
-the active local environment. After cleanup the whole repo tars to a
-manageable size, so the transfer is one archive, no cherry-picking.
+Provisioned instance (2026-06-10): **RTX PRO 6000 WS** @ 185.99.66.48,
+95.6GB VRAM, EPYC 7452 (16 cores allotted), **270GB disk** (roomy),
+112GB RAM, image `vastai/pytorch:cuda-13.1.2-auto`, Jupyter enabled.
+$0.095/hr — it bills while idle, destroy when done.
+
+Repo cleanup already done (old `.venv` + 2.8GB v11 wheels zip deleted;
+.gitignore prevents their return). KEEP `.venv312` locally — that is the
+active Mac environment.
+
+#### Step 1 — Mac: pack the repo (one archive, no cherry-picking)
 
 ```bash
-# --- Mac: one tar of the repo (minus git history, local venv, run art) ---
 cd <repo root>
 tar czf /tmp/arc3.tar.gz --exclude=.git --exclude=.venv312 \
     --exclude='*.log' --exclude='images' .
+```
 
-# --- instance: upload arc3.tar.gz via the Jupyter file browser, then ---
-# (New -> Terminal)
+#### Step 2 — upload to the instance
+
+Drag `arc3.tar.gz` into the Jupyter file browser (it lands in
+`/workspace`). Alternative: get the SSH port from the instance's
+"Open SSH Interface" button, then:
+
+```bash
+scp -P <port> /tmp/arc3.tar.gz root@185.99.66.48:/workspace/
+```
+
+#### Step 3 — instance setup + sanity (Jupyter: New -> Terminal)
+
+```bash
 mkdir -p /workspace/arc3 && cd /workspace/arc3 && tar xzf /workspace/arc3.tar.gz
 pip install \
     arc-prize-2026-arc-agi-3/arc_agi_3_wheels/arcengine-0.9.3-py3-none-any.whl \
     arc-prize-2026-arc-agi-3/arc_agi_3_wheels/arc_agi-0.9.8-py3-none-any.whl \
     python-dotenv
 cd CommunitySolutions/chronos_solver/v14
+python -c "import torch; print(torch.cuda.get_device_name(0))"  # RTX PRO 6000
+python -m plm.smoke                                             # must pass
+```
 
-python -m plm.smoke                                   # must pass
-python -c "import torch; print(torch.cuda.get_device_name(0))"
+#### Step 4 — data + training (nohup: a dropped tab must not kill the run)
 
+```bash
 python gen_data.py --out /workspace/v14_shards \
-    --episodes-per-game 400 --max-steps 150            # ~5 min, ~1GB
+    --episodes-per-game 400 --max-steps 150            # ~5 min
 
 nohup python train_wm.py --phase all --shards /workspace/v14_shards \
     --epochs 20 --steps-per-epoch 1000 --bsz 256 \
@@ -99,14 +119,34 @@ nohup python train_wm.py --phase all --shards /workspace/v14_shards \
 tail -f train.log        # Ctrl-C detaches from tail; training continues
 ```
 
-Notes:
-- nohup matters: a dropped Jupyter tab must not kill an hours-long run.
-- Watch `pixel_acc` (gate 0.995) then `HELDOUT_tok_acc` (gate 0.90).
-- Expect low GPU utilization on this first run — the pure-Python
-  object-channel featurization is the known CPU bottleneck.
-- When done: download `plm_weights.pt` via the file browser into your
-  local v14/ (note: *.pt is gitignored — weights travel by hand/dataset,
-  never via git), then DESTROY the instance — it bills while idle.
+Watch: `pixel_acc` (gate 0.995, tokenizer) then `HELDOUT_tok_acc`
+(gate 0.90, world model). Expect low GPU utilization on this first run —
+the pure-Python object-channel featurization is the known CPU bottleneck.
+
+#### Step 5 — download `plm_weights.pt` (BEFORE destroying the instance)
+
+- Easiest: Jupyter file browser -> navigate to
+  `/workspace/arc3/CommunitySolutions/chronos_solver/v14/` ->
+  right-click `plm_weights.pt` -> Download. Save it into your local
+  `v14/` folder. Grab `train.log` too for the record.
+- Or from the Mac:
+
+```bash
+scp -P <port> root@185.99.66.48:/workspace/arc3/CommunitySolutions/chronos_solver/v14/plm_weights.pt \
+    ~/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v14/
+```
+
+- Note: `*.pt` is gitignored — weights travel by hand/Kaggle dataset,
+  never via git. Verify locally (expect `['tokenizer', 'belief', 'world_model']`):
+
+```bash
+python -c "import torch; print(list(torch.load('plm_weights.pt', map_location='cpu', weights_only=True)))"
+```
+
+#### Step 6 — DESTROY the instance
+
+vast.ai console -> trash icon. A stopped instance can still bill for
+storage; a destroyed one bills nothing.
 
 **Local end-to-end check before shipping** (uses a copy of the v13
 play_game runner; the agent will log `plm:` reasonings instead of `bfs:`):
@@ -136,6 +176,7 @@ v14-plm/
 ```
 
 CLI route (or use the website UI):
+
 ```bash
 cd CommunitySolutions/chronos_solver/v14
 mkdir -p /tmp/v14-plm && cp -r plm my_agent.py plm_weights.pt /tmp/v14-plm/

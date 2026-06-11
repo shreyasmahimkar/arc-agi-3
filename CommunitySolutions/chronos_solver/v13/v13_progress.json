@@ -8,7 +8,7 @@
   },
   "stuck_at": 2
  },
- "updated": "2026-06-10 23:51:36",
+ "updated": "2026-06-11 00:13:44",
  "bp35": {
   "status": "solving",
   "levels": 9,
@@ -151,7 +151,20 @@
   "status": "solving",
   "levels": 6,
   "solved": {
-   "0": 4
-  }
+   "0": 4,
+   "1": 7
+  },
+  "stuck_at": 2
+ },
+ "su15": {
+  "status": "solving",
+  "levels": 9,
+  "solved": {},
+  "stuck_at": 0
+ },
+ "tn36": {
+  "status": "solving",
+  "levels": 7,
+  "solved": {}
  }
 }
