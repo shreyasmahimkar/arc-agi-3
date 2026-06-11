@@ -8,6 +8,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# scipy is optional but makes featurization ~100x faster — the pure-python
+# fallback below was the training-throughput bottleneck on GPU boxes.
+try:
+    from scipy import ndimage as _ndi
+except Exception:
+    _ndi = None
+
 
 # ---------- programmatic object channel (numpy BFS — the v13 trick) ----------
 
@@ -15,6 +22,23 @@ def object_channels(frame: np.ndarray) -> np.ndarray:
     """Connected components per color. Returns float32 (2, H, W):
     channel 0 = normalized component id, channel 1 = normalized component size.
     Gives the CNN object-permanence for free."""
+    if _ndi is not None:
+        # vectorized path: scipy labels each color's components in C
+        comp = np.zeros(frame.shape, np.int32)
+        size = np.zeros(frame.shape, np.float32)
+        nxt = 0
+        for c in np.unique(frame):
+            lab, n = _ndi.label(frame == c)
+            if n == 0:
+                continue
+            m = lab > 0
+            comp[m] = lab[m] + nxt
+            counts = np.bincount(lab.ravel())
+            size[m] = counts[lab[m]]
+            nxt += n
+        return np.stack([comp.astype(np.float32) / max(nxt, 1),
+                         size / frame.size])
+    # pure-python fallback (slow; fine for inference, not for training)
     H, W = frame.shape
     comp = np.zeros((H, W), np.int32)
     size = np.zeros((H, W), np.float32)

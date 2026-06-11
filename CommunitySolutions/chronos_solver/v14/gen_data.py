@@ -101,7 +101,11 @@ def roll_episode(game_cls, game_id, max_steps):
     grids = [np.array(r.frame[-1], dtype=np.uint8)]
     actions, rewards = [], []
     lvl = r.levels_completed
+    # 30% of episodes replay a truncated v13 expert solution — these are
+    # the episodes that actually WIN levels (random play almost never
+    # does), giving the reward head its positive examples
     plan = expert_prefix(game_id) if random.random() < 0.3 else None
+    roll_episode.expert_used = getattr(roll_episode, 'expert_used', 0) + (1 if plan else 0)
     avail = list(getattr(g, '_available_actions', [1, 2, 3, 4]))
     for t in range(max_steps):
         if plan and t < len(plan):
@@ -166,7 +170,13 @@ def main():
             actions=np.concatenate([e[1] for e in eps]),
             rewards=np.concatenate([e[2] for e in eps]))
         n = sum(len(e[1]) for e in eps)
-        logger.info(f"{gid}: {len(eps)} episodes, {n} transitions saved")
+        n_exp = getattr(roll_episode, 'expert_used', 0)
+        roll_episode.expert_used = 0
+        n_win = sum(int((e[2] == 1).sum()) for e in eps)
+        # n_exp == 0 with caches expected? -> v13 JSONs missing from the
+        # clone; the dataset would have no win transitions. Check git.
+        logger.info(f"{gid}: {len(eps)} episodes ({n_exp} expert-seeded), "
+                    f"{n} transitions, {n_win} WIN events saved")
 
 
 if __name__ == "__main__":
