@@ -139,12 +139,20 @@ class VectorQuantizer(nn.Module):
         idx = d.argmin(1)                            # (BHW,)
         q = self.embed[idx].view(B, H, W, D).permute(0, 3, 1, 2)
         if self.training:
-            onehot = F.one_hot(idx, self.K).type(flat.dtype)
-            self.cluster_size.mul_(self.decay).add_(onehot.sum(0), alpha=1 - self.decay)
-            self.embed_avg.mul_(self.decay).add_(onehot.t() @ flat, alpha=1 - self.decay)
-            n = self.cluster_size.sum()
-            cs = (self.cluster_size + self.eps) / (n + self.K * self.eps) * n
-            self.embed.copy_(self.embed_avg / cs.unsqueeze(1))
+            # EMA codebook update — MUST be outside autograd. Without the
+            # no_grad + detach, `flat`'s gradient graph gets entangled with
+            # the persistent buffers and every step's activations are
+            # retained: observed leak of ~65MB/step until a 140GB H200
+            # filled (139.08 GiB "allocated by PyTorch"). detach().float()
+            # also keeps EMA statistics in fp32 under bf16 autocast.
+            with torch.no_grad():
+                flat_d = flat.detach().float()
+                onehot = F.one_hot(idx, self.K).float()
+                self.cluster_size.mul_(self.decay).add_(onehot.sum(0), alpha=1 - self.decay)
+                self.embed_avg.mul_(self.decay).add_(onehot.t() @ flat_d, alpha=1 - self.decay)
+                n = self.cluster_size.sum()
+                cs = (self.cluster_size + self.eps) / (n + self.K * self.eps) * n
+                self.embed.copy_(self.embed_avg / cs.unsqueeze(1))
         commit = F.mse_loss(z, q.detach())
         q = z + (q - z).detach()                     # straight-through
         return q, idx.view(B, H, W), commit
