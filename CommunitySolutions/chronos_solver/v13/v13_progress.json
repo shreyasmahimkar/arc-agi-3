@@ -8,7 +8,7 @@
   },
   "stuck_at": 2
  },
- "updated": "2026-06-10 23:11:14",
+ "updated": "2026-06-10 23:51:36",
  "bp35": {
   "status": "solving",
   "levels": 9,
@@ -136,6 +136,22 @@
  "sc25": {
   "status": "solving",
   "levels": 6,
-  "solved": {}
+  "solved": {},
+  "stuck_at": 0
+ },
+ "sk48": {
+  "status": "solving",
+  "levels": 8,
+  "solved": {
+   "0": 14
+  },
+  "stuck_at": 1
+ },
+ "sp80": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {
+   "0": 4
+  }
  }
 }

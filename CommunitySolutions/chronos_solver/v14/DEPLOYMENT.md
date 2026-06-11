@@ -65,6 +65,49 @@ python train_wm.py --phase all --shards /data/v14_shards \
 
 Output: `plm_weights.pt` (tokenizer + belief + world_model state dicts).
 
+### Stage 2 on vast.ai (RTX PRO 6000, pytorch image, Jupyter)
+
+One-time repo cleanup already done (old `.venv` and the 2.8GB v11 wheels
+zip deleted; .gitignore prevents their return). KEEP `.venv312` — that is
+the active local environment. After cleanup the whole repo tars to a
+manageable size, so the transfer is one archive, no cherry-picking.
+
+```bash
+# --- Mac: one tar of the repo (minus git history, local venv, run art) ---
+cd <repo root>
+tar czf /tmp/arc3.tar.gz --exclude=.git --exclude=.venv312 \
+    --exclude='*.log' --exclude='images' .
+
+# --- instance: upload arc3.tar.gz via the Jupyter file browser, then ---
+# (New -> Terminal)
+mkdir -p /workspace/arc3 && cd /workspace/arc3 && tar xzf /workspace/arc3.tar.gz
+pip install \
+    arc-prize-2026-arc-agi-3/arc_agi_3_wheels/arcengine-0.9.3-py3-none-any.whl \
+    arc-prize-2026-arc-agi-3/arc_agi_3_wheels/arc_agi-0.9.8-py3-none-any.whl \
+    python-dotenv
+cd CommunitySolutions/chronos_solver/v14
+
+python -m plm.smoke                                   # must pass
+python -c "import torch; print(torch.cuda.get_device_name(0))"
+
+python gen_data.py --out /workspace/v14_shards \
+    --episodes-per-game 400 --max-steps 150            # ~5 min, ~1GB
+
+nohup python train_wm.py --phase all --shards /workspace/v14_shards \
+    --epochs 20 --steps-per-epoch 1000 --bsz 256 \
+    --holdout ls20,vc33,tu93,ft09,sp80 > train.log 2>&1 &
+tail -f train.log        # Ctrl-C detaches from tail; training continues
+```
+
+Notes:
+- nohup matters: a dropped Jupyter tab must not kill an hours-long run.
+- Watch `pixel_acc` (gate 0.995) then `HELDOUT_tok_acc` (gate 0.90).
+- Expect low GPU utilization on this first run — the pure-Python
+  object-channel featurization is the known CPU bottleneck.
+- When done: download `plm_weights.pt` via the file browser into your
+  local v14/ (note: *.pt is gitignored — weights travel by hand/dataset,
+  never via git), then DESTROY the instance — it bills while idle.
+
 **Local end-to-end check before shipping** (uses a copy of the v13
 play_game runner; the agent will log `plm:` reasonings instead of `bfs:`):
 
