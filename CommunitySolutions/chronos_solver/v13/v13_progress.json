@@ -8,7 +8,7 @@
   },
   "stuck_at": 2
  },
- "updated": "2026-06-11 01:01:39",
+ "updated": "2026-06-11 08:42:38",
  "bp35": {
   "status": "solving",
   "levels": 9,
@@ -136,8 +136,11 @@
  "sc25": {
   "status": "solving",
   "levels": 6,
-  "solved": {},
-  "stuck_at": 0
+  "solved": {
+   "0": 13,
+   "1": 5
+  },
+  "stuck_at": 2
  },
  "sk48": {
   "status": "solving",
@@ -199,6 +202,13 @@
    "1": 7,
    "2": 23,
    "3": 21
-  }
+  },
+  "stuck_at": 4
+ },
+ "wa30": {
+  "status": "solving",
+  "levels": 9,
+  "solved": {},
+  "stuck_at": 0
  }
 }
