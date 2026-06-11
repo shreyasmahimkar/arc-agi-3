@@ -86,16 +86,25 @@ def device_setup():
 
 
 def load_shards(shard_dir, holdout):
-    """Returns {game_id: episode list}; episode = (grids, actions, rewards)."""
+    """Returns {game_id: episode list}; episode = (grids, actions, rewards).
+
+    IMPORTANT: npz members are LAZY — each `z["grids"]` access decompresses
+    the whole array afresh, and keeping slices of separate copies pins them
+    all in RAM (observed: 188GB resident, minutes of load time). Materialize
+    each array exactly ONCE, then slice views of that single parent."""
     train, held = {}, {}
     for p in sorted(glob.glob(os.path.join(shard_dir, "*.npz"))):
         gid = os.path.basename(p)[:-4]
-        z = np.load(p)
+        with np.load(p) as z:
+            grids = z["grids"]          # decompress once
+            lengths = z["lengths"]
+            actions = z["actions"]
+            rewards = z["rewards"]
         eps, g0, a0 = [], 0, 0
-        for ln in z["lengths"]:
-            eps.append((z["grids"][g0:g0 + ln + 1],
-                        z["actions"][a0:a0 + ln],
-                        z["rewards"][a0:a0 + ln]))
+        for ln in lengths:
+            eps.append((grids[g0:g0 + ln + 1],
+                        actions[a0:a0 + ln],
+                        rewards[a0:a0 + ln]))
             g0 += ln + 1
             a0 += ln
         (held if gid in holdout else train)[gid] = eps
@@ -217,12 +226,16 @@ def load_token_shards(token_dir, games):
         p = os.path.join(token_dir, f"{gid}.npz")
         if not os.path.exists(p):
             continue
-        z = np.load(p)
+        with np.load(p) as z:           # materialize once (see load_shards)
+            tokens = z["tokens"]
+            lengths = z["lengths"]
+            actions = z["actions"]
+            rewards = z["rewards"]
         eps, t0, a0 = [], 0, 0
-        for ln in z["lengths"]:
-            eps.append((z["tokens"][t0:t0 + ln + 1],
-                        z["actions"][a0:a0 + ln],
-                        z["rewards"][a0:a0 + ln]))
+        for ln in lengths:
+            eps.append((tokens[t0:t0 + ln + 1],
+                        actions[a0:a0 + ln],
+                        rewards[a0:a0 + ln]))
             t0 += ln + 1
             a0 += ln
         out[gid] = eps
