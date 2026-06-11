@@ -188,7 +188,12 @@ def train_tokenizer(cfg, data, device, amp, args, state):
         if acc > best_acc:
             best_acc = acc
             best_sd = {k: v.detach().clone() for k, v in tok.state_dict().items()}
-            star = " *best*"
+            # checkpoint to DISK on every improvement — the in-memory-only
+            # best was lost when the OOM killer SIGKILLed the process at
+            # epoch 5 of 8 (silent death, no traceback, nothing saved)
+            state["tokenizer"] = best_sd
+            torch.save(state, args.out)
+            star = " *best, checkpointed*"
         logger.info(f"tok epoch {ep}: recon_loss {tot/max(n,1):.4f} "
                     f"pixel_acc {acc:.4f} (gate: 0.995){star}")
     if best_sd is not None:
