@@ -294,9 +294,20 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
     if args.compile and device.type == 'cuda':
         try:
             sim_run = torch.compile(sim)   # weights stay in `sim` (save that)
+            # torch.compile is LAZY — kernels build on first call, so failures
+            # surface mid-training, not here. Observed on RTX PRO 6000
+            # (Blackwell sm_120a): ptxas can't compile the generated Triton
+            # kernels and the whole run dies after pretok. Warm up with a
+            # dummy call NOW and fall back to eager if the toolchain chokes.
+            with torch.no_grad():
+                _h = core.initial(2, device)
+                _z = torch.zeros(2, dtype=torch.long, device=device)
+                sim_run(_h, _z, _z, _z)
             logger.info("wm: torch.compile enabled for the simulator")
         except Exception as e:
-            logger.warning(f"wm: compile unavailable ({e})")
+            logger.warning(f"wm: compile failed at warmup ({type(e).__name__}) "
+                           "— running eager")
+            sim_run = sim
     opt = torch.optim.AdamW(list(core.parameters()) + list(sim.parameters()),
                             lr=args.lr)
     K = args.bptt
