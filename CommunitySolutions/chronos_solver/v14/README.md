@@ -118,12 +118,45 @@ and v13 caches are used ONLY as offline training data generators.
    levels/actions within the same action budget.
 4. Replay sanity: full env replay via play_game.py --fast, like v12/v13.
 
+## Local eval — play_game with trained weights
+
+`play_game.py` (the v13 harness pointed at the PLM agent) lives in this
+dir. With `plm_weights.pt` next to it, weights load automatically
+(search order: `V14_PLM_WEIGHTS` env > `v14/plm_weights.pt` > Kaggle
+dataset mount — see `plm/agent_plm.py:_load_weights`).
+
+```bash
+cd CommunitySolutions/chronos_solver/v14
+source ../../../.venv312/bin/activate
+
+# held-out game (the model NEVER trained on ls20) — the honest test
+V14_REQUIRE_WEIGHTS=1 python play_game.py --game ls20 --fast
+
+# the other held-out games
+for g in vc33 tu93 ft09 sp80; do
+  V14_REQUIRE_WEIGHTS=1 python play_game.py --game $g --fast
+done
+```
+
+`V14_REQUIRE_WEIGHTS=1` makes a failed weight-load fall back to the
+bandit LOUDLY instead of running an untrained PLM silently. What to
+check in stdout / `v14_run.log`:
+
+1. startup: `V14 agent ready: plm=on torch=yes` and
+   `PLM: loaded weights from .../plm_weights.pt`
+2. per step: `plm:goose(...)` reasonings (exploring while the world
+   model is surprised) shifting toward `plm:bfs(...)` (planning in
+   imagination). `np:` reasonings = the bandit is acting = weights
+   didn't load.
+3. the RHAE scorecard at the end — gate 3 is beating the v13 bandit's
+   levels/actions on the same held-out games (run once with
+   `V14_PLM_WEIGHTS=/nonexistent` to get the bandit baseline).
+
 ## Status
 
 - [x] architecture plan (this file)
-- [x] module skeletons in `plm/` incl. agent_plm runtime loop + smoke test
-      (untested — first task on a live machine: `python -m plm.smoke`)
-- [x] data factory (`gen_data.py`) + trainer (`train_wm.py`) skeletons
+- [x] module skeletons in `plm/` incl. agent_plm runtime loop
+- [x] data factory (`gen_data.py`) + trainer (`train_wm.py`)
 - [x] `my_agent.py` harness wrapper (v13 pattern: Agent base, enum patch,
       choose_action) — tier 1 PLM, tier 2 numpy bandit; survives missing
       torch/weights/package. `V14_REQUIRE_WEIGHTS=1` disables an untrained
@@ -132,9 +165,9 @@ and v13 caches are used ONLY as offline training data generators.
       weights ship via a `v14-plm` dataset; staging cell runs ast checks +
       smoke test; rerun cell mirrors v13 (gateway curl, harness copy,
       PYTHONUNBUFFERED + tee'd v14_run.log)
-- [ ] `python -m plm.smoke` on a live machine, then fix what it finds
-- [ ] Phase 0 data run on Mac/RTX (`gen_data.py`)
-- [ ] Phase 1/2 training (`train_wm.py`), gates in "Evaluation gates"
-- [ ] local replay eval: play_game.py from v13 pattern (copy harness
-      runner when a shell is available) on held-out games
-```
+- [x] `python -m plm.smoke` passed (M1, 2026-06-10)
+- [x] Phase 0 data run (Mac pilot + H200 full: 25/25 games)
+- [x] Phase 1/2 training on H200 (`train_wm.py`) -> `plm_weights.pt`
+- [ ] local replay eval: `play_game.py --fast` on held-out games
+      (see "Local eval" above) — beat the bandit baseline, then ship
+- [ ] Stage 3: upload `v14-plm` Kaggle dataset + submit notebook

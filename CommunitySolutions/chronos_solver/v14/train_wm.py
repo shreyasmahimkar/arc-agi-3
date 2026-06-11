@@ -138,8 +138,18 @@ def batch_frames(data, n, device, cfg):
 
 def train_tokenizer(cfg, data, device, amp, args, state):
     tok = Tokenizer(cfg).to(device)
-    opt = torch.optim.AdamW(tok.parameters(), lr=3e-4)
+    if "tokenizer" in state:
+        # resume — previously this silently retrained from scratch, throwing
+        # away a checkpoint that took ~50 GPU-minutes to produce
+        tok.load_state_dict(state["tokenizer"])
+        logger.info("tok: resumed from checkpoint")
+    opt = torch.optim.AdamW(tok.parameters(), lr=args.lr)
     bsz = args.bsz
+    # Keep the BEST epoch, not the last. Observed on H200: epochs oscillate
+    # (0.981 at ep6 -> 0.444 at ep7, an EMA codebook re-clustering dip) and
+    # the old code checkpointed whatever epoch happened to be final —
+    # the wm phase then trained on tokens from the worst tokenizer of the run.
+    best_acc, best_sd = -1.0, None
     for ep in range(args.epochs):
         tot = n = 0
         for step in range(args.steps_per_epoch):
@@ -162,13 +172,28 @@ def train_tokenizer(cfg, data, device, amp, args, state):
                 logger.warning(f"OOM -> bsz {bsz}")
                 continue
             tot += recon.item(); n += 1
-        # GATE: pixel-exact reconstruction rate on a fresh batch
+        # GATE: pixel-exact reconstruction on 512 frames in eval mode.
+        # (Was: 64 frames in TRAIN mode — noisy, and the eval itself
+        # mutated the EMA codebook.)
+        tok.eval()
         with torch.no_grad():
-            x, y = batch_frames(data, 64, device, cfg)
-            q, _ = tok.encode(x)
-            acc = (tok.dec(q).argmax(1) == y).float().mean().item()
+            accs = []
+            for _ in range(4):
+                x, y = batch_frames(data, 128, device, cfg)
+                q, _ = tok.encode(x)
+                accs.append((tok.dec(q).argmax(1) == y).float().mean().item())
+        tok.train()
+        acc = sum(accs) / len(accs)
+        star = ""
+        if acc > best_acc:
+            best_acc = acc
+            best_sd = {k: v.detach().clone() for k, v in tok.state_dict().items()}
+            star = " *best*"
         logger.info(f"tok epoch {ep}: recon_loss {tot/max(n,1):.4f} "
-                    f"pixel_acc {acc:.4f} (gate: 0.995)")
+                    f"pixel_acc {acc:.4f} (gate: 0.995){star}")
+    if best_sd is not None:
+        tok.load_state_dict(best_sd)
+        logger.info(f"tok: keeping best epoch state (pixel_acc {best_acc:.4f})")
     state["tokenizer"] = tok.state_dict()
     return tok
 
