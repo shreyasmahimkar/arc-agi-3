@@ -8,7 +8,7 @@
   },
   "stuck_at": 2
  },
- "updated": "2026-06-10 21:05:21",
+ "updated": "2026-06-10 23:11:14",
  "bp35": {
   "status": "solving",
   "levels": 9,
@@ -90,6 +90,52 @@
    "2": 39,
    "3": 43,
    "4": 44
-  }
+  },
+  "stuck_at": 5
+ },
+ "m0r0": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {
+   "0": 15,
+   "1": 23
+  },
+  "stuck_at": 2
+ },
+ "r11l": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {
+   "0": 3
+  },
+  "stuck_at": 1
+ },
+ "re86": {
+  "status": "solving",
+  "levels": 8,
+  "solved": {
+   "0": 20
+  },
+  "stuck_at": 1
+ },
+ "s5i5": {
+  "status": "solving",
+  "levels": 8,
+  "solved": {
+   "0": 13,
+   "1": 26
+  },
+  "stuck_at": 2
+ },
+ "sb26": {
+  "status": "solving",
+  "levels": 8,
+  "solved": {},
+  "stuck_at": 0
+ },
+ "sc25": {
+  "status": "solving",
+  "levels": 6,
+  "solved": {}
  }
 }
