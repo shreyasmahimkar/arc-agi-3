@@ -42,8 +42,10 @@ swap in `scipy.ndimage.label` or precompute tokens per shard.
 
 ## Stage 2 — RTX PRO 6000: full training
 
-The PLM auto-detects CUDA: bf16 autocast + cudnn.benchmark turn on by
-themselves (`device_setup()` in train_wm.py). No flags needed.
+The PLM auto-detects CUDA: bf16 autocast turns on by itself
+(`device_setup()` in train_wm.py). cudnn.benchmark is deliberately OFF —
+with varying batch shapes its per-shape algorithm search caused an OOM
+death-spiral ("FIND was unable to find an engine"). No flags needed.
 
 ```bash
 # 1. bigger dataset (CPU-bound; the box's core count is the win here)

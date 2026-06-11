@@ -23,6 +23,12 @@ import os
 import random
 import sys
 
+# Must be set BEFORE torch import: expandable segments let the caching
+# allocator grow/shrink instead of fragmenting — observed failure without
+# it: OOM cascade at 22GB used on a 140GB H200, ending in cudnn
+# "FIND was unable to find an engine".
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -78,7 +84,12 @@ logger = logging.getLogger(__name__)
 
 def device_setup():
     if torch.cuda.is_available():
-        torch.backends.cudnn.benchmark = True        # fixed 64x64 inputs
+        # cudnn.benchmark deliberately OFF: our batch shapes vary (train
+        # bsz / eval bsz / OOM-backoff sizes) and each new shape triggers
+        # an algorithm search that allocates big trial workspaces — that
+        # interaction caused an OOM death-spiral ending in cudnn FIND
+        # errors. The benchmark win is negligible for convs this small.
+        torch.backends.cudnn.benchmark = False
         return torch.device("cuda"), True             # amp on
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
         return torch.device("mps"), False             # fp32 for stability
@@ -144,8 +155,10 @@ def train_tokenizer(cfg, data, device, amp, args, state):
             except (RuntimeError, MemoryError) as e:   # OOM backoff (v13 habit)
                 if 'out of memory' not in str(e).lower():
                     raise
-                bsz = max(8, bsz // 2)
-                torch.cuda.empty_cache()
+                del x, y                               # release the failed batch
+                bsz = max(64, bsz // 2)                # floor: don't spiral to 8
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 logger.warning(f"OOM -> bsz {bsz}")
                 continue
             tot += recon.item(); n += 1
