@@ -112,40 +112,122 @@ def train_tokenizer(cfg, data, device, amp, args, state):
     return tok
 
 
-def train_world_model(cfg, data, held, device, amp, args, state, tok):
+# ==================== [perf patch] PRE-TOKENIZATION ====================
+# Phase 2 used to re-featurize + re-encode ~2300 raw frames PER STEP in
+# single-threaded Python — the GPU (H200 or RTX PRO 6000 alike) idled at
+# 5-10% while the CPU crawled. The tokenizer is FROZEN in Phase 2, so we
+# encode every frame exactly once, cache the token ids (64 uint16/frame,
+# the whole dataset shrinks to ~200MB), and train the world model purely
+# from token arrays. Device-agnostic: cuda / mps / cpu, with OOM backoff.
+
+def _tok_fingerprint(tok):
+    """Cheap checksum of the codebook — a retrained tokenizer must
+    invalidate any stale token cache."""
+    return float(tok.vq.embed.abs().sum().item())
+
+
+def pretokenize_shards(cfg, data, tok, device, token_dir):
+    """Encode all raw episodes once. Writes one npz per game into token_dir
+    with the same episode layout as the raw shards (tokens/lengths/actions/
+    rewards) + the tokenizer fingerprint."""
+    os.makedirs(token_dir, exist_ok=True)
+    fp = _tok_fingerprint(tok)
     tok.eval()
+    enc_bsz = 2048                       # halved automatically on OOM
+    for gid, eps in data.items():
+        out = os.path.join(token_dir, f"{gid}.npz")
+        if os.path.exists(out):
+            try:
+                if abs(float(np.load(out)["fingerprint"]) - fp) < 1e-3:
+                    continue             # cache valid for this tokenizer
+            except Exception:
+                pass
+        all_frames = np.concatenate([e[0] for e in eps])      # (N,64,64) u8
+        ids_chunks = []
+        i = 0
+        while i < len(all_frames):
+            chunk = all_frames[i:i + enc_bsz]
+            try:
+                with torch.no_grad():
+                    x = torch.stack(
+                        [frame_to_tensor(f.astype(np.int64), cfg.n_colors)
+                         for f in chunk]).to(device, non_blocking=True)
+                    _, ids = tok.encode(x)                    # (B,8,8)
+                ids_chunks.append(ids.to("cpu", torch.int16).numpy())
+                i += len(chunk)
+            except (RuntimeError, MemoryError) as e:
+                if 'out of memory' not in str(e).lower() or enc_bsz <= 64:
+                    raise
+                enc_bsz //= 2
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                logger.warning(f"pretok: OOM -> enc_bsz {enc_bsz}")
+        np.savez_compressed(
+            out,
+            tokens=np.concatenate(ids_chunks),
+            lengths=np.array([len(e[1]) for e in eps]),
+            actions=np.concatenate([e[1] for e in eps]),
+            rewards=np.concatenate([e[2] for e in eps]),
+            fingerprint=np.float64(fp))
+        logger.info(f"pretok {gid}: {len(all_frames)} frames -> {out}")
+
+
+def load_token_shards(token_dir, games):
+    """{gid: [(tokens(T+1,8,8) i16, actions(T,3) i16, rewards(T) u8)]}"""
+    out = {}
+    for gid in games:
+        p = os.path.join(token_dir, f"{gid}.npz")
+        if not os.path.exists(p):
+            continue
+        z = np.load(p)
+        eps, t0, a0 = [], 0, 0
+        for ln in z["lengths"]:
+            eps.append((z["tokens"][t0:t0 + ln + 1],
+                        z["actions"][a0:a0 + ln],
+                        z["rewards"][a0:a0 + ln]))
+            t0 += ln + 1
+            a0 += ln
+        out[gid] = eps
+    return out
+
+
+def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
+    """Phase 2 on PRE-TOKENIZED data: the training loop never touches raw
+    pixels or the tokenizer — pure tensor slicing feeding the GPU."""
     core = BeliefCore(cfg).to(device)
     sim = BlockCausalSimulator(cfg).to(device)
+    sim_run = sim
+    if args.compile and device.type == 'cuda':
+        try:
+            sim_run = torch.compile(sim)   # weights stay in `sim` (save that)
+            logger.info("wm: torch.compile enabled for the simulator")
+        except Exception as e:
+            logger.warning(f"wm: compile unavailable ({e})")
     opt = torch.optim.AdamW(list(core.parameters()) + list(sim.parameters()),
-                            lr=3e-4)
+                            lr=args.lr)
     K = args.bptt
 
     def episode_batch(src, n):
-        """n random K+1-frame windows -> tokens(T+1), actions(T), rewards(T).
-        Retries until the batch is non-empty: episodes shorter than the BPTT
-        window are skipped, and torch.stack on an empty list would crash."""
+        """n random K+1 windows straight from token arrays — microseconds."""
         toks, acts, rews = [], [], []
         attempts = 0
+        eps_pool = list(src.values())
         while len(toks) < n and attempts < n * 20:
             attempts += 1
-            eps = random.choice(random.choice(list(src.values())))
-            g, a, r = eps
+            t, a, r = random.choice(random.choice(eps_pool))
             if len(a) <= K:
                 continue
             t0 = random.randrange(len(a) - K)
-            with torch.no_grad():
-                x = torch.stack([frame_to_tensor(f.astype(np.int64), cfg.n_colors)
-                                 for f in g[t0:t0 + K + 1]]).to(device)
-                _, ids = tok.encode(x)               # (K+1, 8, 8)
-            toks.append(ids)
+            toks.append(torch.from_numpy(t[t0:t0 + K + 1].astype(np.int64)))
             acts.append(torch.from_numpy(a[t0:t0 + K].astype(np.int64)))
             rews.append(torch.from_numpy(r[t0:t0 + K].astype(np.int64)))
         if not toks:
             raise RuntimeError(
-                f"no episodes longer than bptt={K} in shards — regenerate "
-                f"data with --max-steps > {K} or lower --bptt")
-        return (torch.stack(toks), torch.stack(acts).to(device),
-                torch.stack(rews).to(device))
+                f"no episodes longer than bptt={K} in token shards — "
+                f"regenerate data with --max-steps > {K} or lower --bptt")
+        return (torch.stack(toks).to(device, non_blocking=True),
+                torch.stack(acts).to(device, non_blocking=True),
+                torch.stack(rews).to(device, non_blocking=True))
 
     def rollout_loss(toks, acts, rews):
         """Teacher-forced K-step BPTT through the GRU belief."""
@@ -157,7 +239,7 @@ def train_world_model(cfg, data, held, device, amp, args, state, tok):
         for t in range(K):
             h = core.step(h, toks[:, t], prev_a[:, 0], prev_a[:, 1], prev_a[:, 2])
             a = acts[:, t]
-            tl, rl, ch = sim(h, a[:, 0], a[:, 1], a[:, 2])
+            tl, rl, ch = sim_run(h, a[:, 0], a[:, 1], a[:, 2])
             tgt = toks[:, t + 1].reshape(B, -1)              # (B, 64)
             loss = loss + F.cross_entropy(tl.reshape(-1, cfg.codebook),
                                           tgt.reshape(-1))
@@ -169,9 +251,11 @@ def train_world_model(cfg, data, held, device, amp, args, state, tok):
             prev_a = a
         return loss / K, tok_correct / max(tok_total, 1)
 
+    import time as _time
     for ep in range(args.epochs):
+        t_ep = _time.time()
         for step in range(args.steps_per_epoch):
-            toks, acts, rews = episode_batch(data, args.bsz)
+            toks, acts, rews = episode_batch(tok_train, args.bsz)
             opt.zero_grad()
             if amp:
                 with torch.autocast("cuda", torch.bfloat16):
@@ -184,30 +268,38 @@ def train_world_model(cfg, data, held, device, amp, args, state, tok):
             opt.step()
         # GATE: accuracy on HELD-OUT GAMES = the generalization number
         with torch.no_grad():
-            ht, ha, hr = episode_batch(held or data, 32)
+            ht, ha, hr = episode_batch(tok_held or tok_train, 32)
             _, hacc = rollout_loss(ht, ha, hr)
         logger.info(f"wm epoch {ep}: train_tok_acc {acc:.3f} "
-                    f"HELDOUT_tok_acc {hacc:.3f} (gate: 0.90)")
+                    f"HELDOUT_tok_acc {hacc:.3f} (gate: 0.90) "
+                    f"[{_time.time()-t_ep:.0f}s]")
+    # NOTE: save the UNcompiled module's weights (compile wraps state_dict
+    # keys with _orig_mod. — the v13 lesson, applied in reverse)
     state["belief"] = core.state_dict()
     state["world_model"] = sim.state_dict()
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--phase", choices=["tok", "wm", "all"], default="all")
+    ap.add_argument("--phase", choices=["tok", "pretok", "wm", "all"],
+                    default="all")
     ap.add_argument("--shards", default="/tmp/v14_shards")
     ap.add_argument("--holdout", default="ls20,vc33,tu93,ft09,sp80")
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--steps-per-epoch", type=int, default=500)
     ap.add_argument("--bsz", type=int, default=64)
     ap.add_argument("--bptt", type=int, default=8)
+    ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--compile", action="store_true",
+                    help="torch.compile the simulator (cuda only; H200/RTX)")
     ap.add_argument("--out", default=os.path.join(HERE, "plm_weights.pt"))
     args = ap.parse_args()
 
     cfg = PLMConfig()
     device, amp = device_setup()
     logger.info(f"device={device} amp={amp}")
-    train, held = load_shards(args.shards, set(args.holdout.split(",")))
+    holdout = set(args.holdout.split(","))
+    train, held = load_shards(args.shards, holdout)
 
     state = {}
     if os.path.exists(args.out):                       # resume-friendly
@@ -215,13 +307,26 @@ def main():
                                 weights_only=True))
         logger.info(f"resuming from {args.out}: {list(state)}")
 
+    # ---- Phase 1: tokenizer (raw pixels; CPU featurization tolerable) ----
     if args.phase in ("tok", "all"):
         tok = train_tokenizer(cfg, train, device, amp, args, state)
+        torch.save(state, args.out)                    # checkpoint per phase
+        logger.info(f"tokenizer checkpointed -> {args.out}")
     else:
         tok = Tokenizer(cfg).to(device)
         tok.load_state_dict(state["tokenizer"])
+
+    # ---- Phase 1.5: pre-tokenize EVERYTHING once (the H200/RTX speed fix:
+    # Phase 2's loop then never touches raw pixels or the tokenizer) ----
+    token_dir = args.shards.rstrip("/") + "_tokens"
+    if args.phase in ("pretok", "wm", "all"):
+        pretokenize_shards(cfg, {**train, **held}, tok, device, token_dir)
+
+    # ---- Phase 2: world model on token arrays (GPU-bound at last) ----
     if args.phase in ("wm", "all"):
-        train_world_model(cfg, train, held, device, amp, args, state, tok)
+        tok_train = load_token_shards(token_dir, list(train))
+        tok_held = load_token_shards(token_dir, list(held))
+        train_world_model(cfg, tok_train, tok_held, device, amp, args, state)
 
     torch.save(state, args.out)
     logger.info(f"saved -> {args.out}")
