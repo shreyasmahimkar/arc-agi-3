@@ -18,6 +18,7 @@ fp32 on mps/cpu, OOM batch backoff. UNTESTED SKELETON.
 import argparse
 import glob
 import logging
+import multiprocessing as mp
 import os
 import random
 import sys
@@ -30,9 +31,46 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 from plm.config import PLMConfig                      # noqa: E402
-from plm.encoder import Tokenizer, frame_to_tensor    # noqa: E402
+from plm.encoder import (Tokenizer, frame_to_tensor,  # noqa: E402
+                         object_channels)
 from plm.trm import BeliefCore                        # noqa: E402
 from plm.world_model import BlockCausalSimulator      # noqa: E402
+
+
+# ==================== [perf patch 2] PARALLEL FEATURIZATION ====================
+# `ps` showed training pinned at 101% CPU = ONE core of 28. The hot spot
+# is per-frame featurization. Split it: the one-hot half vectorizes across
+# the whole batch in a single numpy op (no parallelism needed); the
+# connected-components half (the actually-slow part) fans out to a worker
+# pool. Workers return only 2x64x64 floats each, so IPC stays cheap.
+
+_POOL = None
+
+
+def init_pool():
+    global _POOL
+    if _POOL is None and mp.cpu_count() > 2:
+        try:
+            ctx = mp.get_context("fork") if sys.platform != "darwin" \
+                else mp.get_context("spawn")
+            _POOL = ctx.Pool(min(16, mp.cpu_count() - 2))
+            logger.info(f"featurize pool: {_POOL._processes} workers")
+        except Exception as e:
+            logger.warning(f"featurize pool unavailable ({e}); single-core")
+
+
+def featurize_frames(frames_u8, n_colors=16):
+    """(B,64,64) uint8 -> (B, n_colors+2, 64, 64) float32 torch (CPU).
+    Batched one-hot + pooled object channels."""
+    f = frames_u8.astype(np.int64).clip(0, n_colors - 1)
+    oh = np.eye(n_colors, dtype=np.float32)[f]            # (B,H,W,C)
+    oh = oh.transpose(0, 3, 1, 2)                         # (B,C,H,W)
+    if _POOL is not None:
+        objs = _POOL.map(object_channels, list(frames_u8), chunksize=16)
+    else:
+        objs = [object_channels(fr) for fr in frames_u8]
+    x = np.concatenate([oh, np.stack(objs)], axis=1)      # (B,C+2,H,W)
+    return torch.from_numpy(x)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -66,14 +104,15 @@ def load_shards(shard_dir, holdout):
 
 
 def batch_frames(data, n, device, cfg):
-    """Random frames -> (x, target) for tokenizer training."""
+    """Random frames -> (x, target) for tokenizer training.
+    Featurization is batched + pooled (see featurize_frames)."""
     frames = []
     for _ in range(n):
         eps = random.choice(random.choice(list(data.values())))
         frames.append(eps[0][random.randrange(len(eps[0]))])
-    x = torch.stack([frame_to_tensor(f.astype(np.int64), cfg.n_colors)
-                     for f in frames]).to(device)
-    y = torch.from_numpy(np.stack(frames).astype(np.int64)).to(device)
+    frames = np.stack(frames)
+    x = featurize_frames(frames, cfg.n_colors).to(device, non_blocking=True)
+    y = torch.from_numpy(frames.astype(np.int64)).to(device, non_blocking=True)
     return x, y
 
 
@@ -149,9 +188,8 @@ def pretokenize_shards(cfg, data, tok, device, token_dir):
             chunk = all_frames[i:i + enc_bsz]
             try:
                 with torch.no_grad():
-                    x = torch.stack(
-                        [frame_to_tensor(f.astype(np.int64), cfg.n_colors)
-                         for f in chunk]).to(device, non_blocking=True)
+                    x = featurize_frames(chunk, cfg.n_colors).to(
+                        device, non_blocking=True)
                     _, ids = tok.encode(x)                    # (B,8,8)
                 ids_chunks.append(ids.to("cpu", torch.int16).numpy())
                 i += len(chunk)
@@ -298,6 +336,7 @@ def main():
     cfg = PLMConfig()
     device, amp = device_setup()
     logger.info(f"device={device} amp={amp}")
+    init_pool()      # parallel featurization across CPU cores
     holdout = set(args.holdout.split(","))
     train, held = load_shards(args.shards, holdout)
 
