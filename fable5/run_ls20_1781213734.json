@@ -1,0 +1,248 @@
+{
+  "card_id": "e9d2d8b8-d721-4859-9472-5a3687659c0d",
+  "game_id": "ls20-9607627b",
+  "model": "claude-fable-5",
+  "started": "2026-06-11T21:28:31.813807+00:00",
+  "steps": [
+    {
+      "n": 1,
+      "action": "ACTION1",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": "Initial frame: a maze of 3-floor with a small player shape (colors 0/1) around (20-22, 31-33). A target zone with C/9 cells at x34-38, y45-49. Top-right box shows a 9-pattern, maybe the shape the player must form/match."
+    },
+    {
+      "n": 2,
+      "action": "ACTION1",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": "The C/9 block moved up 5 cells (it's the controllable object, moving in 5-cell steps); B bar shrank slightly (timer). ACTION1 = up."
+    },
+    {
+      "n": 3,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 4,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 5,
+      "action": "ACTION1",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": "My previous two responses failed to register (header still shows RESET). Block at x34-38,y35-39; path above (x34-38, rows 25-34) is clear floor. Continue moving up."
+    },
+    {
+      "n": 6,
+      "action": "ACTION1",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": "Full grid visible: block (C top 2 rows, 9 bottom 3) at x34-38,y30-34 in a wide horizontal corridor; vertical corridor x34-38 leads up to icon room showing a specific 9-pattern; another 9-pattern displayed bottom-left. The 0/1 stamp at (21,31-33) sits in the left corridor - maybe modifies block on contact."
+    },
+    {
+      "n": 7,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 8,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 9,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 10,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 11,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 12,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 13,
+      "action": "RESET",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 14,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 15,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 16,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 17,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    },
+    {
+      "n": 18,
+      "action": "ACTION5",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": null
+    }
+  ],
+  "finished": "2026-06-11T21:35:34.804299+00:00",
+  "final_scorecard": {
+    "card_id": "e9d2d8b8-d721-4859-9472-5a3687659c0d",
+    "environments": [
+      {
+        "actions": 18,
+        "completed": false,
+        "id": "ls20-9607627b",
+        "level_count": 7,
+        "levels_completed": 0,
+        "resets": 1,
+        "runs": [
+          {
+            "actions": 18,
+            "completed": false,
+            "guid": "d18a323d-2f89-4437-8df8-aefe5601c798",
+            "level_actions": [
+              18,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "level_baseline_actions": [
+              22,
+              123,
+              73,
+              84,
+              96,
+              192,
+              186
+            ],
+            "level_scores": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "levels_completed": 0,
+            "resets": 1,
+            "score": 0.0,
+            "state": "NOT_FINISHED"
+          }
+        ],
+        "score": 0.0
+      }
+    ],
+    "score": 0.0,
+    "tags": [
+      "fable5",
+      "claude-fable-5",
+      "agent"
+    ],
+    "tags_scores": [
+      {
+        "actions": 18,
+        "id": "keyboard",
+        "levels_completed": 0,
+        "number_of_environments": 1,
+        "number_of_levels": 7,
+        "score": 0.0
+      }
+    ],
+    "total_actions": 18,
+    "total_environments": 1,
+    "total_environments_completed": 0,
+    "total_levels": 7,
+    "total_levels_completed": 0
+  },
+  "tokens": {
+    "in": 96129,
+    "out": 24791
+  }
+}

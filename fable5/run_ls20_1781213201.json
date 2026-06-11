@@ -1,0 +1,95 @@
+{
+  "card_id": "a74c3cfd-cf44-4e37-804b-bf29653389b4",
+  "game_id": "ls20-9607627b",
+  "model": "claude-fable-5",
+  "started": "2026-06-11T21:26:20.984215+00:00",
+  "steps": [
+    {
+      "n": 1,
+      "action": "ACTION1",
+      "x": null,
+      "y": null,
+      "score": 0,
+      "state": "NOT_FINISHED",
+      "observation": "Initial maze of 3s on 4 background. Likely player: small 0/1 cluster at ~(20-22, 31-33). Possible goal: C/9 block at (34-38, 45-49). Top-right box shows a 9-pattern (maybe target shape). Bottom bar of B's may be energy/move counter."
+    }
+  ],
+  "finished": "2026-06-11T21:26:41.719380+00:00",
+  "final_scorecard": {
+    "card_id": "a74c3cfd-cf44-4e37-804b-bf29653389b4",
+    "environments": [
+      {
+        "actions": 1,
+        "completed": false,
+        "id": "ls20-9607627b",
+        "level_count": 7,
+        "levels_completed": 0,
+        "resets": 0,
+        "runs": [
+          {
+            "actions": 1,
+            "completed": false,
+            "guid": "9931abdf-85fd-4e00-b875-a1b209f7d368",
+            "level_actions": [
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "level_baseline_actions": [
+              22,
+              123,
+              73,
+              84,
+              96,
+              192,
+              186
+            ],
+            "level_scores": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "levels_completed": 0,
+            "resets": 0,
+            "score": 0.0,
+            "state": "NOT_FINISHED"
+          }
+        ],
+        "score": 0.0
+      }
+    ],
+    "score": 0.0,
+    "tags": [
+      "fable5",
+      "claude-fable-5",
+      "agent"
+    ],
+    "tags_scores": [
+      {
+        "actions": 1,
+        "id": "keyboard",
+        "levels_completed": 0,
+        "number_of_environments": 1,
+        "number_of_levels": 7,
+        "score": 0.0
+      }
+    ],
+    "total_actions": 1,
+    "total_environments": 1,
+    "total_environments_completed": 0,
+    "total_levels": 7,
+    "total_levels_completed": 0
+  },
+  "tokens": {
+    "in": 2287,
+    "out": 427
+  }
+}
