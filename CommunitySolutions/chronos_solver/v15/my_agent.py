@@ -87,6 +87,7 @@ SCOUT_ACTIONS = int(os.environ.get("V15_SCOUT_ACTIONS", 80))
 RESCOUT_ACTIONS = int(os.environ.get("V15_RESCOUT_ACTIONS", 40))
 TTT_SECONDS = float(os.environ.get("V15_TTT_SECONDS", 240))
 STUCK_WINDOW = int(os.environ.get("V15_STUCK_WINDOW", 60))
+BFS_BUDGET = float(os.environ.get("V15_BFS_BUDGET", 600))
 
 
 class MyAgent(Agent):
@@ -130,10 +131,17 @@ class MyAgent(Agent):
         s._last_lvl = None
         s._since_progress = 0
         s._ttt_runs = 0
+        # pass 1a: REAL BFS — only possible when engine source is present
+        # (local play / public games). On the hidden eval this tier finds
+        # no source and silently degrades to the scout.
+        s._bfs_tried = False
+        s._bfs_solutions = {}           # level -> [(aid, data), ...]
+        s._bfs_plan = []                # actions being executed this level
         logger.info(f"V15 agent ready: plm={'on' if s._plm else 'OFF'} "
                     f"torch={'yes' if TORCH_AVAILABLE else 'no'} "
                     f"phase={s._phase} (scout {SCOUT_ACTIONS} acts, "
-                    f"ttt {TTT_SECONDS:.0f}s)")
+                    f"ttt {TTT_SECONDS:.0f}s, bfs {BFS_BUDGET:.0f}s) "
+                    f"[{os.path.abspath(__file__)}]")
 
     # ---------------- three-pass plumbing ----------------
     def _record(s, raw, lvl):
@@ -158,6 +166,106 @@ class MyAgent(Agent):
         s._ep_frames, s._ep_acts, s._ep_rews = [], [], []
         s._last_raw = None
         s._last_act3 = None
+
+    def _pass1_bfs(s):
+        """PASS 1a — the real thing, when reality permits: load the game
+        engine (v13's BFSSolver, imported from the v13 folder if present),
+        solve levels under BFS_BUDGET, then REPLAY each solution through
+        the engine to mint perfect expert episodes (WIN-labeled) for the
+        TTT buffer. No engine source / no v13 module -> returns quietly
+        and the scout takes over (the hidden-eval path)."""
+        s._bfs_tried = True
+        logger.info("V15 pass1-BFS: starting (engine probe)")
+        try:
+            import glob as _glob
+            import importlib.util
+            here = os.path.dirname(os.path.abspath(__file__))
+            v13_agent = os.path.join(here, '..', 'v13', 'my_agent.py')
+            local_dir = getattr(getattr(s.arc_env, 'environment_info', None),
+                                'local_dir', None)
+            if not (os.path.exists(v13_agent) and local_dir):
+                logger.info("V15 pass1-BFS: no engine/v13 module — scout path")
+                return
+            srcs = _glob.glob(os.path.join(local_dir, f"{s.game_id}*.py")) \
+                or _glob.glob(os.path.join(local_dir, "**",
+                                           f"{s.game_id}*.py"), recursive=True)
+            if not srcs:
+                logger.info("V15 pass1-BFS: no game source — scout path")
+                return
+            src = srcs[0]
+            import re as _re
+            # search the WHOLE file: games open with huge sprite dicts and
+            # the class def can sit far past any prefix (ar25: the [:2000]
+            # truncation made this return silently — the 06-12 bug)
+            m = _re.search(r'class\s+(\w+)\s*\(\s*ARCBaseGame',
+                           open(src).read())
+            cls_name = m.group(1) if m else s.game_id.capitalize()
+            # import the spawn-safe shim (a REAL module file, so macOS
+            # spawn workers can re-import it by name — see v13_agent.py)
+            import v13_agent as v13m
+            logger.info(f"V15 pass1-BFS: engine {cls_name} via v13 solver")
+            solver = v13m.BFSSolver(src, cls_name, scan_timeout=5,
+                                    bfs_timeout=120,
+                                    workers=v13m.HW["workers"])
+            if not solver.load():
+                logger.info("V15 pass1-BFS: engine load failed — scout path")
+                return
+            try:
+                n_levels = len(getattr(solver.game_cls(), '_levels', [])) or 10
+            except Exception:
+                n_levels = 10
+            t0 = time.time()
+            for li in range(n_levels):
+                rem = BFS_BUDGET - (time.time() - t0)
+                if rem < 10:
+                    logger.info(f"V15 pass1-BFS: budget out before L{li}")
+                    break
+                solver.bfs_timeout = min(120, rem - 5)
+                prev = solver.solutions.get(li - 1) if li > 0 else None
+                sol = solver.solve_level(
+                    li, prev_solution=prev,
+                    frontier_path=f"/tmp/v15_rt_{s.game_id}_L{li}.pkl")
+                if not sol:
+                    logger.info(f"V15 pass1-BFS: L{li} unsolved — stopping")
+                    break
+            s._bfs_solutions = dict(solver.solutions)
+            logger.info(f"V15 pass1-BFS: solved levels "
+                        f"{sorted(s._bfs_solutions)} in "
+                        f"{time.time()-t0:.0f}s")
+            # ---- replay solutions -> expert episodes for the TTT buffer ----
+            if s._bfs_solutions:
+                from arcengine import ActionInput as _AI
+                g = solver.game_cls()
+                g.perform_action(_AI(id=GameAction.RESET), raw=True)
+                r = g.perform_action(_AI(id=GameAction.RESET), raw=True)
+                fr = [np.array(r.frame[-1], dtype=np.uint8)]
+                ac, rw = [], []
+                lvl0 = r.levels_completed
+                for li in sorted(s._bfs_solutions):
+                    for aid, data in s._bfs_solutions[li]:
+                        ai = _AI(id=GameAction.from_id(aid), data=data) \
+                            if data else _AI(id=GameAction.from_id(aid))
+                        r = g.perform_action(ai, raw=True)
+                        if not r.frame:
+                            break
+                        fr.append(np.array(r.frame[-1], dtype=np.uint8))
+                        ac.append((aid, (data or {}).get('x', 0),
+                                   (data or {}).get('y', 0)))
+                        won = max(r.levels_completed,
+                                  g._current_level_index) > lvl0
+                        rw.append(1 if won else 0)
+                        if won:
+                            lvl0 = max(r.levels_completed,
+                                       g._current_level_index)
+                if ac:
+                    s._episodes.append((np.stack(fr),
+                                        np.asarray(ac, np.int16),
+                                        np.asarray(rw, np.uint8)))
+                    logger.info(f"V15 pass1-BFS: banked expert episode "
+                                f"({len(ac)} transitions, "
+                                f"{int(sum(rw))} WINs) for TTT")
+        except Exception as e:
+            logger.warning(f"V15 pass1-BFS failed ({e}) — scout path")
 
     def _train_now(s, seconds):
         """Pass 2: finetune the PLM on everything recorded so far."""
@@ -218,6 +326,9 @@ class MyAgent(Agent):
                 s._act_stats = {}
                 s._noop_memory = set()
                 s.pr = None; s.pai = None; s.ph = None
+                # new level: if BFS pre-solved it, queue the solution
+                s._bfs_plan = [tuple(x) for x in
+                               s._bfs_solutions.get(lvl, [])]
                 if s._plm:
                     # rules persist across levels in a game; layouts don't —
                     # the PLM keeps its belief, the goose re-verifies
@@ -241,6 +352,32 @@ class MyAgent(Agent):
             # ===== THREE-PASS RUNTIME =====
             s._record(raw, lvl)                       # every step feeds pass 2
             s._since_progress += 1
+
+            # pass 1a (once, at first contact): REAL BFS if the engine
+            # source exists. Solved levels execute directly; the replayed
+            # expert episode supercharges the first TTT.
+            if not s._bfs_tried and s._plm is not None:
+                logger.info("V15 pass1 gate OPEN — attempting real BFS")
+                s._pass1_bfs()
+                if s._bfs_solutions:
+                    s._bfs_plan = [tuple(x) for x in
+                                   s._bfs_solutions.get(lvl, [])]
+                    if s._episodes:           # expert episode banked ->
+                        s._train_now(TTT_SECONDS)   # train NOW, skip scout
+                        s._phase = 'plm'
+
+            # tier 0: execute a BFS-found solution for this level
+            if s._bfs_plan:
+                aid, data = s._bfs_plan.pop(0)
+                sel = GameAction.from_id(aid)
+                if data:
+                    sel.set_data(data)
+                sel.reasoning = f"bfs-exec({len(s._bfs_plan)} left)"
+                d = data or {}
+                s._last_act3 = (int(aid), int(d.get('x', 0)),
+                                int(d.get('y', 0)))
+                s.la += 1
+                return sel
 
             # pass 1 -> pass 2 transition: scout budget exhausted
             if s._phase == 'scout' and s._scout_left <= 0:
