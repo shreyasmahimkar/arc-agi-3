@@ -146,11 +146,14 @@ class PLMAgent:
             if seq:
                 action = seq[0]
                 self.plan_queue = seq[1:]
-                info = f"plm:bfs(win@{stats['depth']},{stats['explored']}sims)"
-            else:  # no imagined win found — fall back to curious poking
+                if stats.get("hard"):
+                    info = f"plm:bfs(win@{stats['depth']},{stats['explored']}sims)"
+                else:   # committed prefix toward the most win-promising leaf
+                    info = f"plm:bfs-soft(p={stats['p']:.2f},commit={len(seq)})"
+            else:  # reward head sees nothing promising — curious poking
                 action = self.goose.pick(self.h, cur, self.sim, cands,
                                          self.device)
-                info = "plm:bfs-miss->goose"
+                info = f"plm:bfs-miss(p={stats['p']:.2f})->goose"
 
         # 6) record the prediction for this action so the NEXT frame can
         #    grade it (the goose's only supervision at test time)
