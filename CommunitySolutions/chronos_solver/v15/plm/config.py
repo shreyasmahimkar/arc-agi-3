@@ -22,9 +22,12 @@ class PLMConfig:
     # actions
     n_action_ids: int = 8          # RESET..ACTION7 (0..7)
     # planner
-    plan_depth: int = 5
+    plan_depth: int = 8            # search horizon per replan (was 5;
+                                   # commit+replan extends it further)
     plan_beam: int = 64            # surviving states per depth
     plan_topk_clicks: int = 12     # candidate clicks from object centroids
+    plan_win_prob: float = 0.15    # soft P(win) needed to commit a prefix
+    plan_commit: int = 4           # actions committed from a soft plan
     # curiosity (goose)
     surprise_ema: float = 0.9
     explore_threshold: float = 0.12   # token error rate below which goose retires
