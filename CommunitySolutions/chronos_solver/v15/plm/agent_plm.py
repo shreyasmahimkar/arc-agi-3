@@ -143,8 +143,11 @@ class PLMAgent:
             # moment imagination is half-trustworthy; the goose only acts
             # during first contact or when the planner comes back empty.
             action = None
-            if (self.goose.steps >= self.cfg.min_explore_steps
-                    and self.goose.err < 0.6):
+            # ALWAYS try planning first — even at step 1. The start state is
+            # exactly where the expert corridor (and thus the value head's
+            # knowledge) begins; goose-first walked us OFF the corridor into
+            # states the value head was trained to score zero. Sims are free.
+            if True:
                 if self.plan_misses >= self.cfg.think_after_misses:
                     # DEEP THINK: quick searches keep missing — escalate
                     # depth/beam under a wall-clock budget (sims are free;
@@ -174,9 +177,6 @@ class PLMAgent:
             if action is None:
                 action = self.goose.pick(self.h, cur, self.sim, cands,
                                          self.device)
-                if self.goose.steps < self.cfg.min_explore_steps \
-                        or self.goose.err >= 0.6:
-                    info = f"plm:goose(err={self.goose.err:.2f})"
 
         # 6) record the prediction for this action so the NEXT frame can
         #    grade it (the goose's only supervision at test time)

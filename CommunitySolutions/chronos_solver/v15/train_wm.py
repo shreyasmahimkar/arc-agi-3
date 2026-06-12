@@ -365,8 +365,13 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
             loss = loss + 0.5 * F.cross_entropy(rl, rews[:, t])
             changed = (tgt != cur).any(-1).float()
             loss = loss + 0.2 * F.binary_cross_entropy_with_logits(ch, changed)
-            # value: gamma^(steps-to-win) — the planner's compass
-            loss = loss + 0.5 * F.mse_loss(val, vals[:, t])
+            # value: gamma^(steps-to-win) — the planner's compass.
+            # Weighted: only ~12% of transitions have nonzero targets
+            # (expert-corridor states); unweighted MSE underfit to "always
+            # ~0" and the planner saw p=0.00 everywhere. Positives get 5x.
+            vt = vals[:, t]
+            w = 1.0 + 4.0 * (vt > 0).float()
+            loss = loss + 1.0 * (w * (val - vt) ** 2).mean()
             tok_correct += (tl.argmax(-1) == tgt).sum().item()
             tok_total += tgt.numel()
             prev_a = a
