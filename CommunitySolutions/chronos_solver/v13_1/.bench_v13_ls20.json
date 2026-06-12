@@ -1,0 +1,28 @@
+{
+ "version": "v13",
+ "game": "ls20",
+ "budget_per_level": 600.0,
+ "levels": [
+  {
+   "level": 0,
+   "solved": true,
+   "actions": 13,
+   "time_s": 3.1,
+   "explored": 332
+  },
+  {
+   "level": 1,
+   "solved": true,
+   "actions": 45,
+   "time_s": 10.1,
+   "explored": 2848
+  },
+  {
+   "level": 2,
+   "solved": true,
+   "actions": 39,
+   "time_s": 11.8,
+   "explored": 3828
+  }
+ ]
+}
