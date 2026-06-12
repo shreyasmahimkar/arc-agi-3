@@ -144,7 +144,10 @@ def main():
         logger.info(f"\n----------------------------------------------")
         logger.info(f"--- STEP {step_count} ---")
 
-        if agent.is_done(frames, lf) or (hasattr(lf, 'state') and lf.state in [GameState.GAME_OVER, GameState.WIN]):
+        # WIN ends the run. GAME_OVER does NOT — the real Kaggle harness
+        # lets the agent RESET and continue (resets are merely counted);
+        # breaking here killed a run right after TTT #2 had retrained.
+        if agent.is_done(frames, lf) or (hasattr(lf, 'state') and lf.state is GameState.WIN):
             state_val = getattr(lf, 'state', 'UNKNOWN')
             logger.info(f"Game finished! Final state: {state_val}")
             break
