@@ -69,7 +69,7 @@ class Goose:
         ay = torch.tensor([a[2] for a in candidate_actions], device=device)
         h = belief.expand(len(candidate_actions), -1)
         t = cur_tokens.reshape(1, -1).expand(len(candidate_actions), -1)
-        tok_logits, _, change = sim(h, t, aid, ax, ay)
+        tok_logits, _, change, _ = sim(h, t, aid, ax, ay)
         probs = F.softmax(tok_logits, -1)
         ent = -(probs * probs.clamp_min(1e-9).log()).sum(-1).mean(-1)  # (A,)
         # prefer uncertain AND likely-to-do-something actions

@@ -255,8 +255,25 @@ def pretokenize_shards(cfg, data, tok, device, token_dir):
         logger.info(f"pretok {gid}: {len(all_frames)} frames -> {out}")
 
 
-def load_token_shards(token_dir, games):
-    """{gid: [(tokens(T+1,8,8) i16, actions(T,3) i16, rewards(T) u8)]}"""
+def _value_targets(rewards, gamma):
+    """gamma^(steps until the next WIN) per transition; 0 if no win ahead.
+    The value head's training signal — a learned distance-to-goal that
+    gives the planner gradient toward wins beyond its search horizon."""
+    v = np.zeros(len(rewards), np.float32)
+    d = None
+    for t in range(len(rewards) - 1, -1, -1):
+        if rewards[t] == 1:
+            d = 0
+        elif d is not None:
+            d += 1
+        if d is not None:
+            v[t] = gamma ** d
+    return v
+
+
+def load_token_shards(token_dir, games, gamma):
+    """{gid: [(tokens(T+1,8,8) i16, actions(T,3) i16, rewards(T) u8,
+               values(T) f32)]}"""
     out = {}
     for gid in games:
         p = os.path.join(token_dir, f"{gid}.npz")
@@ -269,9 +286,11 @@ def load_token_shards(token_dir, games):
             rewards = z["rewards"]
         eps, t0, a0 = [], 0, 0
         for ln in lengths:
+            r = rewards[a0:a0 + ln]
             eps.append((tokens[t0:t0 + ln + 1],
                         actions[a0:a0 + ln],
-                        rewards[a0:a0 + ln]))
+                        r,
+                        _value_targets(r, gamma)))
             t0 += ln + 1
             a0 += ln
         out[gid] = eps
@@ -306,27 +325,29 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
 
     def episode_batch(src, n):
         """n random K+1 windows straight from token arrays — microseconds."""
-        toks, acts, rews = [], [], []
+        toks, acts, rews, vals = [], [], [], []
         attempts = 0
         eps_pool = list(src.values())
         while len(toks) < n and attempts < n * 20:
             attempts += 1
-            t, a, r = random.choice(random.choice(eps_pool))
+            t, a, r, v = random.choice(random.choice(eps_pool))
             if len(a) <= K:
                 continue
             t0 = random.randrange(len(a) - K)
             toks.append(torch.from_numpy(t[t0:t0 + K + 1].astype(np.int64)))
             acts.append(torch.from_numpy(a[t0:t0 + K].astype(np.int64)))
             rews.append(torch.from_numpy(r[t0:t0 + K].astype(np.int64)))
+            vals.append(torch.from_numpy(v[t0:t0 + K].astype(np.float32)))
         if not toks:
             raise RuntimeError(
                 f"no episodes longer than bptt={K} in token shards — "
                 f"regenerate data with --max-steps > {K} or lower --bptt")
         return (torch.stack(toks).to(device, non_blocking=True),
                 torch.stack(acts).to(device, non_blocking=True),
-                torch.stack(rews).to(device, non_blocking=True))
+                torch.stack(rews).to(device, non_blocking=True),
+                torch.stack(vals).to(device, non_blocking=True))
 
-    def rollout_loss(toks, acts, rews):
+    def rollout_loss(toks, acts, rews, vals):
         """Teacher-forced K-step BPTT through the GRU belief."""
         B = toks.shape[0]
         h = core.initial(B, device)
@@ -337,13 +358,15 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
             h = core.step(h, toks[:, t], prev_a[:, 0], prev_a[:, 1], prev_a[:, 2])
             a = acts[:, t]
             cur = toks[:, t].reshape(B, -1)              # v15: current tokens
-            tl, rl, ch = sim_run(h, cur, a[:, 0], a[:, 1], a[:, 2])
+            tl, rl, ch, val = sim_run(h, cur, a[:, 0], a[:, 1], a[:, 2])
             tgt = toks[:, t + 1].reshape(B, -1)              # (B, 64)
             loss = loss + F.cross_entropy(tl.reshape(-1, cfg.codebook),
                                           tgt.reshape(-1))
             loss = loss + 0.5 * F.cross_entropy(rl, rews[:, t])
             changed = (tgt != cur).any(-1).float()
             loss = loss + 0.2 * F.binary_cross_entropy_with_logits(ch, changed)
+            # value: gamma^(steps-to-win) — the planner's compass
+            loss = loss + 0.5 * F.mse_loss(val, vals[:, t])
             tok_correct += (tl.argmax(-1) == tgt).sum().item()
             tok_total += tgt.numel()
             prev_a = a
@@ -356,13 +379,13 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
     for ep in range(args.epochs):
         t_ep = _time.time()
         for step in range(args.steps_per_epoch):
-            toks, acts, rews = episode_batch(tok_train, args.bsz)
+            toks, acts, rews, vals = episode_batch(tok_train, args.bsz)
             opt.zero_grad()
             if amp:
                 with torch.autocast("cuda", torch.bfloat16):
-                    loss, acc = rollout_loss(toks, acts, rews)
+                    loss, acc = rollout_loss(toks, acts, rews, vals)
             else:
-                loss, acc = rollout_loss(toks, acts, rews)
+                loss, acc = rollout_loss(toks, acts, rews, vals)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
                 list(core.parameters()) + list(sim.parameters()), 1.0)
@@ -375,8 +398,8 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
         with torch.no_grad():
             haccs = []
             for _ in range(8):
-                ht, ha, hr = episode_batch(tok_held or tok_train, 32)
-                _, h1 = rollout_loss(ht, ha, hr)
+                ht, ha, hr, hv = episode_batch(tok_held or tok_train, 32)
+                _, h1 = rollout_loss(ht, ha, hr, hv)
                 haccs.append(h1)
             hacc = sum(haccs) / len(haccs)
         star = ""
@@ -445,8 +468,8 @@ def main():
 
     # ---- Phase 2: world model on token arrays (GPU-bound) ----
     if args.phase in ("wm", "all"):
-        tok_train = load_token_shards(token_dir, list(train))
-        tok_held = load_token_shards(token_dir, list(held))
+        tok_train = load_token_shards(token_dir, list(train), cfg.value_gamma)
+        tok_held = load_token_shards(token_dir, list(held), cfg.value_gamma)
         train_world_model(cfg, tok_train, tok_held, device, amp, args, state)
 
     torch.save(state, args.out)

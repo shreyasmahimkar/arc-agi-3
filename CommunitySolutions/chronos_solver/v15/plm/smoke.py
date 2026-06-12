@@ -44,11 +44,13 @@ def main():
     sim = BlockCausalSimulator(cfg)
     sim.eval()  # disable dropout for equivalent input shape test
     cur = idx.reshape(1, -1)
-    tl, rl, ch = sim(h, cur, *a)
-    assert tl.shape == (1, cfg.tokens_per_frame, cfg.codebook), tl.shape
-    assert rl.shape == (1, 3) and ch.shape == (1,)
-    # also accept (B, 8, 8) token grids
-    tl2, _, _ = sim(h, idx, *a)
+    with torch.no_grad():
+        tl, rl, ch, val = sim(h, cur, *a)
+        assert tl.shape == (1, cfg.tokens_per_frame, cfg.codebook), tl.shape
+        assert rl.shape == (1, 3) and ch.shape == (1,)
+        assert val.shape == (1,) and 0.0 <= float(val) <= 1.0
+        # also accept (B, 8, 8) token grids
+        tl2, _, _, _ = sim(h, idx, *a)
     assert torch.allclose(tl, tl2)
     print("world model OK (token-conditioned)")
 

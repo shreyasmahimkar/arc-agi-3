@@ -26,12 +26,16 @@ class PLMConfig:
                                    # commit+replan extends it further)
     plan_beam: int = 64            # surviving states per depth
     plan_topk_clicks: int = 12     # candidate clicks from object centroids
-    plan_win_prob: float = 0.15    # soft P(win) needed to commit a prefix
+    plan_win_prob: float = 0.05    # min predicted VALUE to commit a prefix
+                                   # (value = gamma^steps-to-win; 0.05 ~ a
+                                   # win ~18 steps out at gamma 0.85)
     plan_commit: int = 4           # actions committed from a soft plan
+    value_gamma: float = 0.85      # discount for the value head target
     # curiosity (goose)
     surprise_ema: float = 0.9
     explore_threshold: float = 0.12   # token error rate below which goose retires
-    min_explore_steps: int = 8
+    min_explore_steps: int = 3        # was 8 — RHAE bills every real action
+                                      # quadratically; trust the prior sooner
 
     @property
     def tokens_per_frame(self) -> int:

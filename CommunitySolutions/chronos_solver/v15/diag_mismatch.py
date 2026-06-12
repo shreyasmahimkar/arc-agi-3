@@ -143,7 +143,7 @@ def main():
                 h = core.step(h, ids[t:t+1], prev[:, 0], prev[:, 1], prev[:, 2])
                 at = torch.tensor(a[t:t+1], dtype=torch.long)
                 cur = ids[t:t+1].reshape(1, -1)          # v15: current tokens
-                tl, _, _ = sim(h, cur, at[:, 0], at[:, 1], at[:, 2])
+                tl, _, _, _ = sim(h, cur, at[:, 0], at[:, 1], at[:, 2])
                 accs.append(float((tl.argmax(-1).flatten()
                                    == ids[t+1].flatten()).float().mean()))
                 prev = at

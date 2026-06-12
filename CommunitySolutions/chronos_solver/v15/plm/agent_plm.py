@@ -135,32 +135,40 @@ class PLMAgent:
         if self.plan_queue:
             action = self.plan_queue.pop(0)
             info = f"plm:plan({len(self.plan_queue)} left)"
-        # 4) world model still confused -> goose pokes the environment
-        elif self.goose.should_explore():
-            action = self.goose.pick(self.h, cur, self.sim, cands, self.device)
-            info = f"plm:goose(err={self.goose.err:.2f})"
-        # 5) model trusts itself -> plan in imagination
         else:
-            seq, stats = latent_bfs(self.h, cur, self.sim, self.belief_core,
-                                    cands, self.cfg, self.device)
-            if seq:
-                action = seq[0]
-                self.plan_queue = seq[1:]
-                if stats.get("hard"):
-                    info = f"plm:bfs(win@{stats['depth']},{stats['explored']}sims)"
-                else:   # committed prefix toward the most win-promising leaf
-                    info = f"plm:bfs-soft(p={stats['p']:.2f},commit={len(seq)})"
-            else:  # reward head sees nothing promising — curious poking
+            # RHAE inversion: the score is min(1, baseline/actions)^2 — every
+            # REAL action is billed quadratically, while planner simulations
+            # are free (rules: internal ops don't count). So PLAN FIRST the
+            # moment imagination is half-trustworthy; the goose only acts
+            # during first contact or when the planner comes back empty.
+            action = None
+            if (self.goose.steps >= self.cfg.min_explore_steps
+                    and self.goose.err < 0.6):
+                seq, stats = latent_bfs(self.h, cur, self.sim,
+                                        self.belief_core, cands,
+                                        self.cfg, self.device)
+                if seq:
+                    action = seq[0]
+                    self.plan_queue = seq[1:]
+                    if stats.get("hard"):
+                        info = f"plm:bfs(win@{stats['depth']},{stats['explored']}sims)"
+                    else:   # committed prefix toward best-value leaf
+                        info = f"plm:bfs-soft(p={stats['p']:.2f},commit={len(seq)})"
+                else:
+                    info = f"plm:bfs-miss(p={stats['p']:.2f})->goose"
+            if action is None:
                 action = self.goose.pick(self.h, cur, self.sim, cands,
                                          self.device)
-                info = f"plm:bfs-miss(p={stats['p']:.2f})->goose"
+                if self.goose.steps < self.cfg.min_explore_steps \
+                        or self.goose.err >= 0.6:
+                    info = f"plm:goose(err={self.goose.err:.2f})"
 
         # 6) record the prediction for this action so the NEXT frame can
         #    grade it (the goose's only supervision at test time)
         aid = torch.tensor([action[0]], device=self.device)
         ax = torch.tensor([action[1]], device=self.device)
         ay = torch.tensor([action[2]], device=self.device)
-        tok_logits, _, _ = self.sim(self.h, cur, aid, ax, ay)
+        tok_logits, _, _, _ = self.sim(self.h, cur, aid, ax, ay)
         self.pred_tokens = tok_logits.argmax(-1)              # (1, 64)
 
         self.last_action = action

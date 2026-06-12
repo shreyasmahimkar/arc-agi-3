@@ -43,11 +43,17 @@ class BlockCausalSimulator(nn.Module):
         self.tok_head = nn.Linear(d, cfg.codebook)
         self.reward_head = nn.Linear(d, 3)
         self.change_head = nn.Linear(d, 1)
+        # VALUE head — the sparse-reward fix. The reward head detects the
+        # WIN MOMENT; this predicts gamma^(steps-to-win): a learned compass
+        # that gives the planner gradient toward wins BEYOND its horizon.
+        # Observed without it: planner saw p=0.00 everywhere within depth 8
+        # of ar25 L0's start (the win was 15 steps out) and never moved.
+        self.value_head = nn.Linear(d, 1)
 
     def forward(self, h, cur_tokens, aid, ax, ay):
         """h: (B, belief)  cur_tokens: (B, 64) or (B, 8, 8) int ids
         a*: (B,) -> (B, 64, K) next-token logits, (B, 3) reward logits,
-        (B,) change logit."""
+        (B,) change logit, (B,) value in [0,1]."""
         B = h.shape[0]
         cur = cur_tokens.reshape(B, -1)                           # (B, T)
         ctx = torch.stack([self.belief_in(h), self.act(aid, ax, ay)], 1)
@@ -56,4 +62,5 @@ class BlockCausalSimulator(nn.Module):
         out = self.tf(seq)
         return (self.tok_head(out[:, 2:, :]),                    # next tokens
                 self.reward_head(out[:, 0, :]),                  # from belief slot
-                self.change_head(out[:, 1, :]).squeeze(-1))      # from action slot
+                self.change_head(out[:, 1, :]).squeeze(-1),      # from action slot
+                torch.sigmoid(self.value_head(out[:, 0, :])).squeeze(-1))

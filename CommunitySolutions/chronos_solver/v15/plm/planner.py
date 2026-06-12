@@ -43,10 +43,12 @@ def latent_bfs(belief, cur_tokens, sim, belief_core, candidate_actions,
     best_p, best_hist = 0.0, None       # most win-promising leaf seen
 
     for depth in range(cfg.plan_depth):
-        tok_logits, rew_logits, change = sim(frontier_h, frontier_t,
-                                             aid, ax, ay)
+        tok_logits, rew_logits, change, value = sim(frontier_h, frontier_t,
+                                                    aid, ax, ay)
         explored += frontier_h.shape[0]
         toks = tok_logits.argmax(-1)                        # (N, 64)
+        # the VALUE head (gamma^steps-to-win) is the search heuristic —
+        # unlike P(win) it is nonzero far beyond the horizon
         pwin = rew_logits.softmax(-1)[:, REWARD_WIN]        # (N,)
 
         wins = (rew_logits.argmax(-1) == REWARD_WIN).nonzero(as_tuple=True)[0]
@@ -56,13 +58,13 @@ def latent_bfs(belief, cur_tokens, sim, belief_core, candidate_actions,
             return seq, {"explored": explored, "depth": depth + 1,
                          "hard": True, "p": float(pwin[best])}
 
-        i_best = int(pwin.argmax())
-        if float(pwin[i_best]) > best_p:
-            best_p, best_hist = float(pwin[i_best]), histories[i_best]
+        i_best = int(value.argmax())
+        if float(value[i_best]) > best_p:
+            best_p, best_hist = float(value[i_best]), histories[i_best]
 
-        # beam: rank by win-promise (+ a nudge toward states that change),
+        # beam: rank by value (+ a nudge toward states that change),
         # dedup by predicted tokens, clip
-        order = torch.argsort(pwin + 0.1 * torch.sigmoid(change),
+        order = torch.argsort(value + 0.1 * torch.sigmoid(change),
                               descending=True).tolist()
         keep = []
         for i in order:
