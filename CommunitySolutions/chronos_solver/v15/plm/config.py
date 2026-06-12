@@ -31,6 +31,11 @@ class PLMConfig:
                                    # win ~18 steps out at gamma 0.85)
     plan_commit: int = 4           # actions committed from a soft plan
     value_gamma: float = 0.85      # discount for the value head target
+    think_budget_s: float = 600.0  # DEEP-THINK wall-clock budget when the
+                                   # quick search keeps missing (sims are
+                                   # free under RHAE; real actions are not)
+    think_after_misses: int = 2    # consecutive quick-search misses that
+                                   # trigger a deep think
     # curiosity (goose)
     surprise_ema: float = 0.9
     explore_threshold: float = 0.12   # token error rate below which goose retires

@@ -114,3 +114,6 @@ Notes for the box (all v14 lessons, already coded in):
    in-distribution model worth carrying to new games).
 4. Kaggle notebook + `v15-plm` dataset (copy v14's notebook, rename) —
    only after gates 1–3 in the README pass.
+
+
+V15_REQUIRE_WEIGHTS=1 V15_THINK_BUDGET=60 python play_game.py --game ar25 --fast

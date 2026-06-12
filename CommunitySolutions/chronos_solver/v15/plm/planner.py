@@ -99,3 +99,42 @@ def latent_bfs(belief, cur_tokens, sim, belief_core, candidate_actions,
                      "hard": False, "p": best_p}
     return None, {"explored": explored, "depth": cfg.plan_depth,
                   "hard": False, "p": best_p}
+
+
+@torch.no_grad()
+def latent_bfs_anytime(belief, cur_tokens, sim, belief_core,
+                       candidate_actions, cfg, device, budget_s):
+    """DEEP THINK: anytime iterative widening/deepening under a wall-clock
+    budget. RHAE rationale: simulated states are free, real actions are
+    billed quadratically — when the quick search keeps missing, burning
+    minutes of imagination is strictly cheaper than burning one wasted
+    real action. Escalates (depth, beam) each pass, returns immediately
+    on a hard win, else the best soft plan seen across ALL passes."""
+    import copy as _copy
+    import time as _time
+    t0 = _time.monotonic()
+    best_seq, best_stats = None, {"explored": 0, "depth": 0,
+                                  "hard": False, "p": 0.0}
+    explored_total = 0
+    depth, beam = cfg.plan_depth, cfg.plan_beam
+    passes = 0
+    while True:
+        c = _copy.copy(cfg)
+        c.plan_depth, c.plan_beam = depth, beam
+        seq, stats = latent_bfs(belief, cur_tokens, sim, belief_core,
+                                candidate_actions, c, device)
+        explored_total += stats["explored"]
+        passes += 1
+        if seq and stats.get("hard"):
+            stats["explored"] = explored_total
+            stats["passes"] = passes
+            return seq, stats
+        if stats["p"] > best_stats["p"]:
+            best_seq, best_stats = seq, stats
+        if _time.monotonic() - t0 >= budget_s:
+            break
+        depth = min(depth + 2, 24)      # deeper —
+        beam = min(beam * 2, 1024)      # — and wider every pass
+    best_stats["explored"] = explored_total
+    best_stats["passes"] = passes
+    return best_seq, best_stats

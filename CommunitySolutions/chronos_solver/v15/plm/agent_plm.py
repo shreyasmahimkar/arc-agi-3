@@ -22,7 +22,7 @@ from .config import PLMConfig
 from .encoder import Tokenizer, frame_to_tensor
 from .trm import BeliefCore
 from .world_model import BlockCausalSimulator
-from .planner import latent_bfs
+from .planner import latent_bfs, latent_bfs_anytime
 from .curiosity import Goose
 
 logger = logging.getLogger(__name__)
@@ -103,6 +103,7 @@ class PLMAgent:
         self.last_action = (0, 0, 0)       # RESET
         self.pred_tokens = None            # prediction made for the NEXT frame
         self.plan_queue = []               # committed action sequence
+        self.plan_misses = 0               # consecutive quick-search misses
 
     def on_level_change(self):
         """Same game, next level: rules persist, layout doesn't.
@@ -144,18 +145,32 @@ class PLMAgent:
             action = None
             if (self.goose.steps >= self.cfg.min_explore_steps
                     and self.goose.err < 0.6):
-                seq, stats = latent_bfs(self.h, cur, self.sim,
-                                        self.belief_core, cands,
-                                        self.cfg, self.device)
+                if self.plan_misses >= self.cfg.think_after_misses:
+                    # DEEP THINK: quick searches keep missing — escalate
+                    # depth/beam under a wall-clock budget (sims are free;
+                    # a wasted real action is not)
+                    budget = float(os.environ.get(
+                        "V15_THINK_BUDGET", self.cfg.think_budget_s))
+                    seq, stats = latent_bfs_anytime(
+                        self.h, cur, self.sim, self.belief_core, cands,
+                        self.cfg, self.device, budget)
+                    tag = f"think({stats.get('passes', 1)}p)"
+                else:
+                    seq, stats = latent_bfs(self.h, cur, self.sim,
+                                            self.belief_core, cands,
+                                            self.cfg, self.device)
+                    tag = "bfs"
                 if seq:
+                    self.plan_misses = 0
                     action = seq[0]
                     self.plan_queue = seq[1:]
                     if stats.get("hard"):
-                        info = f"plm:bfs(win@{stats['depth']},{stats['explored']}sims)"
+                        info = f"plm:{tag}(win@{stats['depth']},{stats['explored']}sims)"
                     else:   # committed prefix toward best-value leaf
-                        info = f"plm:bfs-soft(p={stats['p']:.2f},commit={len(seq)})"
+                        info = f"plm:{tag}-soft(p={stats['p']:.2f},commit={len(seq)})"
                 else:
-                    info = f"plm:bfs-miss(p={stats['p']:.2f})->goose"
+                    self.plan_misses += 1
+                    info = f"plm:{tag}-miss(p={stats['p']:.2f})->goose"
             if action is None:
                 action = self.goose.pick(self.h, cur, self.sim, cands,
                                          self.device)
