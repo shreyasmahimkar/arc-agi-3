@@ -81,6 +81,23 @@ def centroid_clicks(frame, k=10):
     return [(6, x, y) for _, x, y in out[:k]]
 
 
+def _solution_sources(game_id):
+    """PASS 2 entry point: yield every known solution dict for a game —
+    pass-1 scratchpads FIRST (they may contain levels BFS solved beyond
+    the old caches), then v13/v12 caches."""
+    scratch = os.environ.get("V15_SCRATCH",
+                             os.path.join(HERE, "v15_scratch"))
+    sp_path = os.path.join(scratch, f"{game_id}.json")
+    if os.path.exists(sp_path):
+        sols = json.load(open(sp_path)).get("solved", {})
+        if sols:
+            yield sols
+    for vdir in ('v13', 'v12'):
+        p = os.path.join(HERE, '..', vdir, f'{vdir}_bfs_cache_{game_id}.json')
+        if os.path.exists(p):
+            yield json.load(open(p))
+
+
 def expert_plan(game_id):
     """CHAINED full solutions L0..Lk — every level boundary is a WIN.
 
@@ -89,12 +106,9 @@ def expert_plan(game_id):
     3 WIN events in 10,000 ar25 transitions, starving the reward head.
     Now: chain contiguous cached levels from L0, keep them FULL by
     default (70%), truncate the last level only 30% of the time (for
-    near-win state diversity)."""
-    for vdir in ('v13', 'v12'):
-        p = os.path.join(HERE, '..', vdir, f'{vdir}_bfs_cache_{game_id}.json')
-        if not os.path.exists(p):
-            continue
-        sols = json.load(open(p))
+    near-win state diversity). Solutions come from pass-1 scratchpads
+    and the v13/v12 caches (see _solution_sources)."""
+    for sols in _solution_sources(game_id):
         ks = []
         i = 0
         while str(i) in sols:           # contiguous from L0 only — an Lk

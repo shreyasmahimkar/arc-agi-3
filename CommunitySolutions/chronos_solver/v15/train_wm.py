@@ -368,10 +368,12 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
             # value: gamma^(steps-to-win) — the planner's compass.
             # Weighted: only ~12% of transitions have nonzero targets
             # (expert-corridor states); unweighted MSE underfit to "always
-            # ~0" and the planner saw p=0.00 everywhere. Positives get 5x.
+            # ~0" and the planner saw p=0.00 everywhere. Positives get 3x.
+            # (First attempt used 1.0 * (1+4x) ~ a 10x gradient hike through
+            # the shared trunk -> NaN collapse, tok_acc 0.000 in one epoch.)
             vt = vals[:, t]
-            w = 1.0 + 4.0 * (vt > 0).float()
-            loss = loss + 1.0 * (w * (val - vt) ** 2).mean()
+            w = 1.0 + 2.0 * (vt > 0).float()
+            loss = loss + 0.5 * (w * (val - vt) ** 2).mean()
             tok_correct += (tl.argmax(-1) == tgt).sum().item()
             tok_total += tgt.numel()
             prev_a = a
@@ -391,6 +393,13 @@ def train_world_model(cfg, tok_train, tok_held, device, amp, args, state):
                     loss, acc = rollout_loss(toks, acts, rews, vals)
             else:
                 loss, acc = rollout_loss(toks, acts, rews, vals)
+            # NaN fuse: one non-finite loss must not poison the weights
+            # (and then get *best, checkpointed* over a good file — which
+            # is exactly what happened on 2026-06-12)
+            if not torch.isfinite(loss):
+                logger.warning(f"non-finite loss at step {step} — batch skipped")
+                opt.zero_grad()
+                continue
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
                 list(core.parameters()) + list(sim.parameters()), 1.0)

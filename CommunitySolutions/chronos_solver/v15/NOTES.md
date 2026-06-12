@@ -102,6 +102,35 @@ Notes for the box (all v14 lessons, already coded in):
   the Mac, then play_game on ar25 (trained) and ls20 (held out).
 - DESTROY the instance when plm_weights.pt + train.log are local.
 
+## THE THREE-PASS PIPELINE (2026-06-12 restructure)
+
+v15 is now explicitly three passes sharing one artifact — the game
+scratchpad (`scratchpad.py`, JSON per game in `v15_scratch/`):
+
+**PASS 1 — symbolic scout (offline only; needs engine source).**
+`pass1_bfs.py`: v13's pure BFS runs ~600s/game, probes every action's
+effect from the start state, solves what it can, and WRITES the
+scratchpad: exact solutions, action-effect measurements, stuck points,
+LLM-readable notes. Resumable; hydrates v13/v12 caches first so budget
+goes into NEW levels.
+
+```bash
+python pass1_bfs.py --games ar25,bp35,cn04,dc22 --budget 600
+```
+
+**PASS 2 — distillation (offline).** gen_data's expert replays now read
+pass-1 scratchpads FIRST (then v13/v12 caches), so every level pass 1
+cracks becomes chained WIN-rich training data for the value/reward
+heads. Same commands as before — the hookup is automatic
+(`V15_SCRATCH` env overrides the scratchpad dir).
+
+**PASS 3 — the PLM plays (everywhere, incl. hidden eval).** Deep-think
+planner (600s budget when stuck) + a LIVE scratchpad learned strictly
+in-episode: per-action effect tallies that prune proven-useless actions
+from the planner's branching. Offline scratchpads never ship to the
+eval as lookup tables (integrity line) — their knowledge arrives only
+as weights via pass 2.
+
 ## Queued after this (decided, not yet built)
 
 1. Augmentation in gen_data: per-episode color permutation + D4

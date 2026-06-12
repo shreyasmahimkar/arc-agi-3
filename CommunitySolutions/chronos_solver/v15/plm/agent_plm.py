@@ -84,6 +84,11 @@ class PLMAgent:
                 try:
                     state = torch.load(p, map_location=self.device,
                                        weights_only=True)
+                    for part, sd in state.items():   # NaN-poisoned checkpoint
+                        for k, v in sd.items():      # guard (2026-06-12)
+                            if not torch.isfinite(v).all():
+                                raise ValueError(
+                                    f"non-finite weights in {part}/{k}")
                     self.tok.load_state_dict(state["tokenizer"])
                     self.belief_core.load_state_dict(state["belief"])
                     self.sim.load_state_dict(state["world_model"])
@@ -104,6 +109,14 @@ class PLMAgent:
         self.pred_tokens = None            # prediction made for the NEXT frame
         self.plan_queue = []               # committed action sequence
         self.plan_misses = 0               # consecutive quick-search misses
+        # LIVE SCRATCHPAD (pass 3): facts learned from THIS episode's own
+        # interactions — the only scratchpad allowed on the hidden eval.
+        # Tracks what each action actually does; useless actions get
+        # pruned from the planner's candidate set (smaller branching =
+        # deeper effective search, and no real actions wasted re-testing
+        # known no-ops — RHAE counts every one).
+        self.live_effects = {}             # aid -> [tries, changes]
+        self._prev_frame = None
 
     def on_level_change(self):
         """Same game, next level: rules persist, layout doesn't.
@@ -123,6 +136,13 @@ class PLMAgent:
         if self.pred_tokens is not None:
             self.goose.observe(self.pred_tokens.flatten(),
                                cur.flatten())
+        # 1b) live scratchpad: what did the last REAL action actually do?
+        if self._prev_frame is not None:
+            aid_last = self.last_action[0]
+            t_, c_ = self.live_effects.get(aid_last, (0, 0))
+            self.live_effects[aid_last] = (
+                t_ + 1, c_ + (1 if (frame != self._prev_frame).any() else 0))
+        self._prev_frame = frame.copy()
 
         # 2) fold the new observation into the recursive belief
         aid = torch.tensor([self.last_action[0]], device=self.device)
@@ -131,6 +151,15 @@ class PLMAgent:
         self.h = self.belief_core.step(self.h, tok_ids, aid, ax, ay)
 
         cands = candidate_actions(frame, avail_ids, self.cfg)
+        # live-scratchpad pruning: drop simple actions PROVEN useless in
+        # this episode (>=4 real tries, zero frame changes); keep >=2
+        # candidates so the agent can never strand itself
+        pruned = [a for a in cands
+                  if a[0] == 6
+                  or self.live_effects.get(a[0], (0, 1))[0] < 4
+                  or self.live_effects.get(a[0], (0, 1))[1] > 0]
+        if len(pruned) >= 2:
+            cands = pruned
 
         # 3) committed plan in flight? keep executing it
         if self.plan_queue:

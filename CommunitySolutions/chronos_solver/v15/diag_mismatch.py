@@ -161,6 +161,63 @@ def main():
         print(f"[C2] windowed K=8 (training behavior): "
               f"mean {sum(wind)/len(wind):.3f}")
 
+    # ---------- E: VALUE COMPASS along the expert corridor ----------
+    # Replay the v13 cached solution through the real engine and ask the
+    # value head at every step: "how close to a win is this?" A working
+    # compass rises ~gamma^d -> 1.0 toward the win. Flat ~0 = the planner
+    # is flying blind (exactly what p=0.00 in the play log means).
+    import json
+    if 'core' not in dir() or 'sim' not in dir():
+        print("\n[E] skipped — belief/world_model not loaded (see [C])")
+        return
+    sol = None
+    for vdir in ('v13', 'v12'):
+        cp = os.path.join(HERE, '..', vdir, f'{vdir}_bfs_cache_{args.game}.json')
+        if os.path.exists(cp):
+            sols = json.load(open(cp))
+            if "0" in sols:
+                sol = sols["0"]
+                break
+    if sol is None:
+        print("\n[E] skipped — no cached L0 solution for this game")
+    else:
+        from arcengine import ActionInput as _AI
+        g = load_engine(args.game)()
+        g.perform_action(_AI(id=GameAction.RESET), raw=True)
+        r = g.perform_action(_AI(id=GameAction.RESET), raw=True)
+        gamma = cfg.value_gamma
+        h = core.initial(1, device)
+        prev = torch.zeros(1, 3, dtype=torch.long)
+        print(f"\n[E] value compass along the {len(sol)}-action expert path "
+              f"(want: rising ~{gamma:.2f}^d -> 1.0):")
+        rows = []
+        frame = np.array(r.frame[-1], dtype=np.uint8)
+        for t, (aid_, data) in enumerate(sol):
+            x_ = (data or {}).get('x', 0)
+            y_ = (data or {}).get('y', 0)
+            ids_t = tok.encode(frame_to_tensor(frame, cfg.n_colors)
+                               .unsqueeze(0))[1]
+            h = core.step(h, ids_t, prev[:, 0], prev[:, 1], prev[:, 2])
+            at = torch.tensor([[aid_, x_, y_]], dtype=torch.long)
+            _, _, _, vpred = sim(h, ids_t.reshape(1, -1),
+                                 at[:, 0], at[:, 1], at[:, 2])
+            tgt = gamma ** (len(sol) - 1 - t)
+            rows.append((t, float(vpred), tgt))
+            prev = at
+            ai = _AI(id=GameAction.from_id(aid_),
+                     data={'x': x_, 'y': y_, 'game_id': 'diag'}) \
+                if aid_ == 6 else _AI(id=GameAction.from_id(aid_))
+            r = g.perform_action(ai, raw=True)
+            if r.frame:
+                frame = np.array(r.frame[-1], dtype=np.uint8)
+        for t, vp, tgt in rows:
+            bar = '#' * int(vp * 40)
+            print(f"    t={t:2d} pred={vp:.3f} target={tgt:.3f} {bar}")
+        corr = np.corrcoef([r_[1] for r_ in rows],
+                           [r_[2] for r_ in rows])[0, 1]
+        print(f"[E] pred/target correlation: {corr:.3f} "
+              "(>0.7 = compass works; ~0 = value head failed to learn)")
+
     # ---------- D: codebook health ----------
     with torch.no_grad():
         E = tok.vq.embed

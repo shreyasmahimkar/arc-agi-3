@@ -74,9 +74,19 @@ if TORCH_AVAILABLE:
     try:
         from plm.agent_plm import PLMAgent, candidate_actions
         from plm.config import PLMConfig
+        from plm import ttt
         PLM_AVAILABLE = True
     except Exception as e:
         logger.warning(f"PLM package unavailable ({e}) — bandit fallback only")
+
+# ---- the THREE-PASS runtime (all inside this agent; the game is unknown) --
+# pass 1 SCOUT: bandit explores for real, recording every transition
+# pass 2 TRAIN: finetune the PLM on this game's own transitions (TTT)
+# pass 3 PLAY:  PLM + deep-think planner; re-scout + retrain when stuck
+SCOUT_ACTIONS = int(os.environ.get("V15_SCOUT_ACTIONS", 80))
+RESCOUT_ACTIONS = int(os.environ.get("V15_RESCOUT_ACTIONS", 40))
+TTT_SECONDS = float(os.environ.get("V15_TTT_SECONDS", 240))
+STUCK_WINDOW = int(os.environ.get("V15_STUCK_WINDOW", 60))
 
 
 class MyAgent(Agent):
@@ -109,8 +119,68 @@ class MyAgent(Agent):
             except Exception as e:
                 logger.warning(f"PLM init failed: {e} — bandit fallback")
                 s._plm = None
+        # three-pass runtime state (game is UNKNOWN — everything below is
+        # learned from this run's own interactions)
+        s._phase = 'scout' if s._plm else 'bandit'
+        s._scout_left = SCOUT_ACTIONS
+        s._episodes = []                # closed episodes: (frames, acts, rews)
+        s._ep_frames, s._ep_acts, s._ep_rews = [], [], []
+        s._last_raw = None
+        s._last_act3 = None             # (id,x,y) actually sent
+        s._last_lvl = None
+        s._since_progress = 0
+        s._ttt_runs = 0
         logger.info(f"V15 agent ready: plm={'on' if s._plm else 'OFF'} "
-                    f"torch={'yes' if TORCH_AVAILABLE else 'no'}")
+                    f"torch={'yes' if TORCH_AVAILABLE else 'no'} "
+                    f"phase={s._phase} (scout {SCOUT_ACTIONS} acts, "
+                    f"ttt {TTT_SECONDS:.0f}s)")
+
+    # ---------------- three-pass plumbing ----------------
+    def _record(s, raw, lvl):
+        """Bank the (prev_frame, action -> this_frame, reward) transition.
+        Runs on EVERY step regardless of phase — the buffer is the game's
+        only textbook."""
+        if s._last_raw is not None and s._last_act3 is not None:
+            rew = 1 if (s._last_lvl is not None and lvl > s._last_lvl) else 0
+            if not s._ep_frames:
+                s._ep_frames.append(s._last_raw.astype(np.uint8))
+            s._ep_frames.append(raw.astype(np.uint8))
+            s._ep_acts.append(s._last_act3)
+            s._ep_rews.append(rew)
+        s._last_raw = raw.copy()
+        s._last_lvl = lvl
+
+    def _close_episode(s):
+        if len(s._ep_acts) > 0:
+            s._episodes.append((np.stack(s._ep_frames),
+                                np.asarray(s._ep_acts, np.int16),
+                                np.asarray(s._ep_rews, np.uint8)))
+        s._ep_frames, s._ep_acts, s._ep_rews = [], [], []
+        s._last_raw = None
+        s._last_act3 = None
+
+    def _train_now(s, seconds):
+        """Pass 2: finetune the PLM on everything recorded so far."""
+        s._close_episode()
+        eps = list(s._episodes)
+        if not eps or s._plm is None:
+            return
+        logger.info(f"V15 TTT #{s._ttt_runs + 1}: training on "
+                    f"{len(eps)} episodes "
+                    f"({sum(len(e[1]) for e in eps)} transitions)...")
+        try:
+            stats = ttt.finetune(s._plm.tok, s._plm.belief_core, s._plm.sim,
+                                 eps, s._plm.device, s._plm.cfg,
+                                 seconds=seconds)
+            s._ttt_runs += 1
+            logger.info(f"V15 TTT done: {stats}")
+            # model changed — let the goose re-measure, drop stale plans
+            s._plm.goose.err = max(s._plm.goose.err, 0.5)
+            s._plm.goose.hist = []
+            s._plm.plan_queue = []
+            s._plm.plan_misses = 0
+        except Exception as e:
+            logger.warning(f"V15 TTT failed ({e}) — continuing untrained")
 
     # ---------------- v13-pattern plumbing ----------------
     def append_frame(s, f):
@@ -144,6 +214,7 @@ class MyAgent(Agent):
                     logger.info(f"V15: level {s.cl} done in {s.la} actions")
                 s.cl = lvl
                 s.la = 0
+                s._since_progress = 0
                 s._act_stats = {}
                 s._noop_memory = set()
                 s.pr = None; s.pai = None; s.ph = None
@@ -154,10 +225,12 @@ class MyAgent(Agent):
 
             # ===== RESET states =====
             if lf.state in [GameState.NOT_PLAYED, GameState.GAME_OVER]:
+                s._close_episode()      # bank what this life taught us
                 if s._plm:
                     s._plm.reset_episode()
                 a = GameAction.RESET
                 a.reasoning = "reset"
+                s._last_act3 = None
                 return a
 
             raw = s._raw(lf)
@@ -165,7 +238,36 @@ class MyAgent(Agent):
             avail_ids = {int(x.value) if hasattr(x, 'value') else int(x)
                          for x in avail}
 
-            # ===== TIER 1: PLM =====
+            # ===== THREE-PASS RUNTIME =====
+            s._record(raw, lvl)                       # every step feeds pass 2
+            s._since_progress += 1
+
+            # pass 1 -> pass 2 transition: scout budget exhausted
+            if s._phase == 'scout' and s._scout_left <= 0:
+                s._train_now(TTT_SECONDS)
+                s._phase = 'plm'
+            # pass 3 stuck -> brief re-scout, then retrain on the new data
+            elif s._phase == 'plm' and s._since_progress > STUCK_WINDOW \
+                    and s._plm is not None:
+                logger.info(f"V15: no progress in {STUCK_WINDOW} actions — "
+                            f"re-scouting {RESCOUT_ACTIONS}")
+                s._phase = 'scout'
+                s._scout_left = RESCOUT_ACTIONS
+                s._since_progress = 0
+
+            # ===== PASS 1: SCOUT (bandit explores, buffer records) =====
+            if s._phase == 'scout' and s._plm is not None:
+                s._scout_left -= 1
+                sel = s._bandit_choose(raw, avail_ids)
+                sel.reasoning = f"scout({s._scout_left} left):" \
+                                + getattr(sel, 'reasoning', '')
+                d = sel.get_data() if hasattr(sel, 'get_data') else None
+                d = d if isinstance(d, dict) else {}
+                s._last_act3 = (int(sel.value), int(d.get('x', 0)),
+                                int(d.get('y', 0)))
+                return sel
+
+            # ===== PASS 3: PLM + deep think =====
             if s._plm is not None:
                 try:
                     (aid, ax, ay), info = s._plm.step(raw, avail_ids)
@@ -174,13 +276,19 @@ class MyAgent(Agent):
                         sel.set_data({"x": int(ax), "y": int(ay)})
                     sel.reasoning = info
                     s.la += 1
+                    s._last_act3 = (int(aid), int(ax), int(ay))
                     return sel
                 except Exception as e:
                     logger.warning(f"PLM step failed ({e}) — bandit takes over")
                     s._plm = None       # don't retry a broken model every step
 
-            # ===== TIER 2: numpy experience-bandit (v13 fallback) =====
-            return s._bandit_choose(raw, avail_ids)
+            # ===== FALLBACK: numpy experience-bandit (no torch / PLM dead) ==
+            sel = s._bandit_choose(raw, avail_ids)
+            d = sel.get_data() if hasattr(sel, 'get_data') else None
+            d = d if isinstance(d, dict) else {}
+            s._last_act3 = (int(sel.value), int(d.get('x', 0)),
+                            int(d.get('y', 0)))
+            return sel
 
         except Exception as e:
             import traceback
