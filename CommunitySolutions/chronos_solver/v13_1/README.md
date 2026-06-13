@@ -31,10 +31,17 @@ new rungs that *shrink the searched space* instead of chewing it faster.
 
 ## Ladder (`--strategy auto`, the default)
 
-`bfs(28%) → waypoint(16%) → astar(14%) → iw1(12%) → iw2(10%) → greedy(20%)`
-then v13's rescues (unmasked-hash retry, hidden-field retry) on leftover
-budget. Exact rungs first (optimality preserved on easy levels), aggressive
-rungs after.
+`bfs sprint (≤6s) → iw1 (8%, cap 30s) → iw2 (8%, cap 45s) → waypoint (6%,
+cap 25s) → astar (5%, cap 20s) → bfs ALL remaining time (resumes the
+sprint's frontier) → greedy leftovers` then v13's rescues (unmasked-hash
+retry; hidden-field retry — also fired on early space-exhaustion, the
+su15 pattern). Tuned from the 600s M1 benchmark: iw rungs run first (cheap,
+two wins at 10-28x fewer states than brute force), waypoint/astar are
+absolutely capped so the ladder tax stops scaling with budget (~125s max,
+was ~120s at 600s and growing with budget). The bfs-rest rung guarantees
+exact BFS never gets less contiguous time than v13's bfs pass — this is
+what recovered ls20 L4 at 44 actions where v13's split-budget greedy gave
+78.
 
 **Every non-exact rung solution is verified by replay** from the search
 baseline before being banked (`_verify_from_snap`) — waypoint composes
@@ -91,3 +98,11 @@ python benchmark.py --games ls20:7,ar25:3,cd82:3,bp35:2,vc33:5,su15:1 \
   per-batch shipping would dominate.
 - `solve_all.py` now runs a single `auto` pass per level instead of
   bfs-then-greedy (the ladder subsumes both).
+
+
+cd CommunitySolutions/chronos_solver/v13_1
+python benchmark.py --games ls20:7,ar25:3,cd82:3,vc33:5,su15:1,bp35:2 \
+    --budget 600 --workers 8 --max-states 5000000
+
+
+python solve_offline.py --game ls20 --level 5 --budget 7200 --bfs-timeout 3600 --workers 8    

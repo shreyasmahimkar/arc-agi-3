@@ -1,0 +1,14 @@
+{
+ "version": "v13",
+ "game": "bp35",
+ "budget_per_level": 600.0,
+ "levels": [
+  {
+   "level": 0,
+   "solved": true,
+   "actions": 23,
+   "time_s": 367.1,
+   "explored": 125571
+  }
+ ]
+}

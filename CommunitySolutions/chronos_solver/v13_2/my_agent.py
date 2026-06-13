@@ -1,4 +1,20 @@
 # =====================================================================
+# chronos_solver v13_2 — v13_1 base + multi-pass search (see RESEARCH.md)
+#
+# New in v13_2:
+#   1. ANYTIME INCUMBENT TIGHTENING (ARA*-flavored): the first verified
+#      solution from any non-optimal rung becomes an upper bound L; with
+#      leftover budget, exact masked BFS reruns with max_depth = L-1 —
+#      finds a strictly shorter solution or proves L optimal-in-model.
+#      (v13's 600s ls20 L4 banked greedy's 78 actions; 44 existed.)
+#   2. ENFORCED HILL CLIMBING rung (FF-style): plateau BFS until the first
+#      state with a never-seen progress signature, COMMIT, restart from it.
+#      Waypoint decomposition with subgoals discovered by search instead of
+#      guessed from centroids. Incomplete -> replay-verified + ladder
+#      fallback (exactly FF's EHC -> best-first fallback).
+#   3. `max_depth` plumbed through exact BFS for the bounded passes.
+#
+# ===================== inherited v13_1 header ========================
 # chronos_solver v13_1 — v13 base + space-shrinking search rungs
 #
 # New in v13_1 (see RESEARCH.md):
@@ -595,7 +611,7 @@ class BFSSolver:
         # ==========================================
         transient = self._detect_transient(game, f0, actions)
         # ---------- [v13_1] space-shrinking strategy ladder ----------
-        if strategy in ('auto', 'astar', 'iw', 'waypoint'):
+        if strategy in ('auto', 'astar', 'iw', 'waypoint', 'ehc'):
             return self._solve_ladder(game, f0, actions, level_idx, strategy,
                                       max_states, frontier_path, transient,
                                       _with_prefix)
@@ -692,12 +708,14 @@ class BFSSolver:
         # every level they didn't win -> absolute caps so the ladder tax
         # stops scaling with budget. Exact BFS still gets all leftover
         # time and resumes the sprint frontier.
-        RUNG_CAPS = {'iw1': 30.0, 'iw2': 45.0, 'waypoint': 25.0,
-                     'astar': 20.0}
+        RUNG_CAPS = {'iw1': 30.0, 'iw2': 45.0, 'ehc': 30.0,
+                     'waypoint': 25.0, 'astar': 20.0}
         if strategy == 'auto':
+            # [v13_2] ehc slots after the iw rungs (cheap, search-discovered
+            # subgoals) and before the geometry-guessing rungs
             plan = [('bfs', 'sprint'), ('iw1', 0.08), ('iw2', 0.08),
-                    ('waypoint', 0.06), ('astar', 0.05), ('bfs', 'rest'),
-                    ('greedy', 'rest')]
+                    ('ehc', 0.07), ('waypoint', 0.06), ('astar', 0.05),
+                    ('bfs', 'rest'), ('greedy', 'rest')]
         elif strategy == 'iw':
             plan = [('iw1', 0.6), ('iw2', 0.4)]
         else:
@@ -746,6 +764,10 @@ class BFSSolver:
                                               frontier_path=(fp_bfs if name == 'bfs' else None),
                                               mask=transient,
                                               greedy=(name == 'greedy'))
+            elif name == 'ehc':
+                res, stats = self._ehc_search(game, f0, actions, level_idx,
+                                              None, rb, max_states,
+                                              mask=transient)
             elif name in ('astar', 'iw1', 'iw2'):
                 res, stats = self._guided_search(game, f0, actions, level_idx,
                                                  None, rb, max_states,
@@ -764,8 +786,38 @@ class BFSSolver:
             if res is not None:
                 exact = name in ('bfs', 'greedy')
                 if exact or self._verify_from_snap(root_snap, res, level_idx):
-                    self.solutions[level_idx] = res
                     lstats['strategy'] = name
+                    # [v13_2] ANYTIME TIGHTEN: a win from any rung except
+                    # exact FIFO BFS (already shortest-in-model) becomes an
+                    # incumbent upper bound; spend leftover budget on a
+                    # depth-bounded exact pass that either shortens it or
+                    # proves it optimal-in-model. (ls20 L4: 78 -> 44.)
+                    # only depth-greedy rungs produce long solutions; iw1/
+                    # iw2 expand FIFO so their wins are already near-
+                    # shortest — tightening them re-proves at full cost
+                    remaining = budget - (time.time() - t0)
+                    if name in ('greedy', 'ehc', 'waypoint', 'astar') \
+                            and len(res) > 12 and remaining > 8:
+                        bound = len(res)
+                        tb = min(remaining - 2, max(8.0, budget * 0.35))
+                        logger.info(f"BFS L{level_idx}: tighten pass — "
+                                    f"incumbent {bound} actions, bounded "
+                                    f"exact BFS ({tb:.0f}s)")
+                        g2 = self._restore(root_snap)
+                        res2, st2 = self._bfs_search_fifo(
+                            g2, f0, actions, level_idx, None, tb,
+                            max_states, tag=f"tighten<{bound}",
+                            mask=transient, max_depth=bound - 1)
+                        lstats['rungs'].append(
+                            {'rung': f'tighten<{bound}', 'explored': st2[0],
+                             'unique': st2[1], 'elapsed': round(st2[2], 2),
+                             'solved': bool(res2)})
+                        if res2 is not None and len(res2) < bound:
+                            logger.info(f"BFS L{level_idx}: tightened "
+                                        f"{bound} -> {len(res2)} actions")
+                            lstats['strategy'] = name + '+tighten'
+                            res = res2
+                    self.solutions[level_idx] = res
                     _cleanup()
                     return _with_prefix(res)
                 logger.warning(f"BFS L{level_idx}: {name} solution FAILED "
@@ -952,7 +1004,7 @@ class BFSSolver:
 
     def _bfs_search_fifo(self, game, f0, actions, level_idx, hidden_fields,
                          time_budget, max_states, tag="", frontier_path=None,
-                         mask=None, force_dyn=False):
+                         mask=None, force_dyn=False, max_depth=200):
         """[v13-speed] BFS storing compressed pickle snapshots in the frontier.
         The v19 'memory optimised replay' re-simulated the full action history
         for every dequeued node (O(depth) sims + 2 deepcopies per expansion).
@@ -1046,8 +1098,10 @@ class BFSSolver:
                         wins.append(new_hist)
                         continue
                     # [v13] depth cap raised 30 → 200: visited-dedup already
-                    # bounds the search; 30 silently truncated longer mazes
-                    if depth < 200:
+                    # bounds the search; 30 silently truncated longer mazes.
+                    # [v13_2] max_depth doubles as the incumbent bound for
+                    # anytime tighten passes (nothing >= L is expanded).
+                    if depth + 1 < max_depth:
                         queue.append((child_snap, new_hist, depth + 1, rfb, rfs))
             if wins:
                 best = min(wins, key=len)
@@ -1432,6 +1486,80 @@ class BFSSolver:
                             f"in {len(sol) + len(fres)} actions ({explored_total} explored, {elapsed:.1f}s)")
                 return sol + fres, (explored_total, explored_total, elapsed)
         return None, (explored_total, explored_total, time.time() - t0)
+
+    def _ehc_search(self, game, f0, actions, level_idx, hidden_fields,
+                    time_budget, max_states, tag="", mask=None,
+                    sig_mask=None, plateau_nodes=6000, max_commits=64):
+        """[v13_2] Enforced Hill Climbing (FF-style, black-box adapted).
+        From the committed state, plateau-BFS until the FIRST child whose
+        masked color-histogram signature was never achieved before in this
+        search ("progress event"), COMMIT to it (discard the frontier),
+        append the plateau path to the running solution, restart. Win is
+        checked on every expansion. Incomplete by design (commitment can
+        trap) -> caller verifies by replay and the ladder falls back, the
+        same EHC -> best-first structure FF uses. Returns (sol, stats)."""
+        if sig_mask is None:
+            sig_mask = mask
+        t0 = time.time()
+        _BFS_W['mask'] = mask; _BFS_W['sig_mask'] = sig_mask
+        _BFS_W['hidden'] = hidden_fields
+        dyn = any(a == 6 for a, _ in actions)
+        cur_snap = self._snap(game)
+        cur_f = f0
+        total_sol = []
+        explored = 0
+        seen_sigs = {self._hist_sig(f0, sig_mask)}
+        commits = 0
+        while (time.time() - t0) < time_budget and commits < max_commits \
+                and explored < max_states:
+            # ---- one plateau: small exact BFS for the next progress event
+            visited = set()
+            g_cur = self._restore(cur_snap)
+            visited.add(self._state_hash(g_cur, cur_f, hidden_fields,
+                                         mask=mask))
+            queue = deque([(cur_snap, [], 0,
+                            cur_f.astype(np.uint8).tobytes(), cur_f.shape)])
+            found = None
+            p_nodes = 0
+            while queue and found is None and p_nodes < plateau_nodes \
+                    and (time.time() - t0) < time_budget:
+                snap, hist, depth, fbytes, fshape = queue.popleft()
+                out = _bfs_expand_node((snap, actions, level_idx,
+                                        fbytes, fshape, dyn))
+                explored += len(out); p_nodes += len(out)
+                for act_id, data, res in out:
+                    if res is None:
+                        continue
+                    h, win, child_snap, child_sig, rfb, rfs, _scal = res
+                    if h in visited:
+                        continue
+                    visited.add(h)
+                    new_hist = hist + [(act_id, data)]
+                    if win:
+                        sol = total_sol + new_hist
+                        elapsed = time.time() - t0
+                        logger.info(f"BFS L{level_idx}: SOLVED (ehc, "
+                                    f"{commits} commits{(' '+tag) if tag else ''}) "
+                                    f"in {len(sol)} actions ({explored} explored, {elapsed:.1f}s)")
+                        return sol, (explored, explored, elapsed)
+                    if child_sig not in seen_sigs:
+                        found = (child_snap, new_hist, child_sig, rfb, rfs)
+                        break
+                    if depth + 1 < 60:
+                        queue.append((child_snap, new_hist, depth + 1,
+                                      rfb, rfs))
+            if found is None:
+                # plateau exhausted with no new signature — EHC dead end
+                logger.info(f"BFS L{level_idx}: ehc plateau dead-end after "
+                            f"{commits} commits ({explored} explored)")
+                return None, (explored, explored, time.time() - t0)
+            child_snap, plateau_path, child_sig, rfb, rfs = found
+            seen_sigs.add(child_sig)
+            total_sol += plateau_path
+            cur_snap = child_snap
+            cur_f = np.frombuffer(rfb, dtype=np.uint8).reshape(rfs)
+            commits += 1
+        return None, (explored, explored, time.time() - t0)
 
     def _verify_from_snap(self, root_snap, sol, level_idx):
         """[v13_1] replay `sol` from the search baseline; True iff it wins.
