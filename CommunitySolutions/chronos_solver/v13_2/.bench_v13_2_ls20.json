@@ -248,6 +248,65 @@
      "solved": true
     }
    ]
+  },
+  {
+   "level": 5,
+   "solved": false,
+   "actions": null,
+   "time_s": 600.7,
+   "explored": 237880,
+   "strategy": null,
+   "rungs": [
+    {
+     "rung": "bfs",
+     "explored": 1676,
+     "unique": 546,
+     "elapsed": 6.08,
+     "solved": false
+    },
+    {
+     "rung": "iw1",
+     "explored": 312,
+     "unique": 188,
+     "elapsed": 2.86,
+     "solved": false
+    },
+    {
+     "rung": "iw2",
+     "explored": 6656,
+     "unique": 3644,
+     "elapsed": 20.46,
+     "solved": false
+    },
+    {
+     "rung": "ehc",
+     "explored": 2436,
+     "unique": 2436,
+     "elapsed": 30.08,
+     "solved": false
+    },
+    {
+     "rung": "waypoint",
+     "explored": 2624,
+     "unique": 2624,
+     "elapsed": 25.39,
+     "solved": false
+    },
+    {
+     "rung": "astar",
+     "explored": 7328,
+     "unique": 3630,
+     "elapsed": 20.3,
+     "solved": false
+    },
+    {
+     "rung": "bfs",
+     "explored": 214412,
+     "unique": 64528,
+     "elapsed": 494.69,
+     "solved": false
+    }
+   ]
   }
  ]
 }
