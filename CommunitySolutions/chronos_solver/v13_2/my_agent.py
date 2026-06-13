@@ -152,7 +152,7 @@ def get_hw_profile():
             #     Batch scales with VRAM; the _train OOM backoff adapts
             #     further at runtime if needed.
             p.update(mode='RTX_6000',
-                     workers=max(1, _mp.cpu_count() - 4),
+                     workers=max(1, _mp.cpu_count() - 1),
                      bsz=2048 if vram_gb > 80 else 1024,
                      buf_size=2_000_000, tfreq=2, net_mult=4,
                      compile=hasattr(torch, 'compile'), amp=True)

@@ -1,0 +1,253 @@
+{
+ "version": "v13_2",
+ "game": "ls20",
+ "budget_per_level": 600.0,
+ "levels": [
+  {
+   "level": 0,
+   "solved": true,
+   "actions": 13,
+   "time_s": 5.0,
+   "explored": 332,
+   "strategy": "bfs",
+   "rungs": [
+    {
+     "rung": "bfs",
+     "explored": 332,
+     "unique": 95,
+     "elapsed": 4.75,
+     "solved": true
+    }
+   ]
+  },
+  {
+   "level": 1,
+   "solved": true,
+   "actions": 45,
+   "time_s": 107.2,
+   "explored": 3548,
+   "strategy": "astar",
+   "rungs": [
+    {
+     "rung": "bfs",
+     "explored": 548,
+     "unique": 149,
+     "elapsed": 6.19,
+     "solved": false
+    },
+    {
+     "rung": "iw1",
+     "explored": 256,
+     "unique": 83,
+     "elapsed": 5.45,
+     "solved": false
+    },
+    {
+     "rung": "iw2",
+     "explored": 1536,
+     "unique": 438,
+     "elapsed": 12.76,
+     "solved": false
+    },
+    {
+     "rung": "ehc",
+     "explored": 1680,
+     "unique": 1680,
+     "elapsed": 30.01,
+     "solved": false
+    },
+    {
+     "rung": "waypoint",
+     "explored": 2100,
+     "unique": 2100,
+     "elapsed": 25.17,
+     "solved": false
+    },
+    {
+     "rung": "astar",
+     "explored": 1868,
+     "unique": 493,
+     "elapsed": 11.92,
+     "solved": true
+    },
+    {
+     "rung": "tighten<45",
+     "explored": 2680,
+     "unique": 693,
+     "elapsed": 14.91,
+     "solved": false
+    }
+   ]
+  },
+  {
+   "level": 2,
+   "solved": true,
+   "actions": 39,
+   "time_s": 72.7,
+   "explored": 5116,
+   "strategy": "waypoint",
+   "rungs": [
+    {
+     "rung": "bfs",
+     "explored": 524,
+     "unique": 166,
+     "elapsed": 6.38,
+     "solved": false
+    },
+    {
+     "rung": "iw1",
+     "explored": 236,
+     "unique": 80,
+     "elapsed": 5.58,
+     "solved": false
+    },
+    {
+     "rung": "iw2",
+     "explored": 2132,
+     "unique": 587,
+     "elapsed": 11.8,
+     "solved": false
+    },
+    {
+     "rung": "ehc",
+     "explored": 2288,
+     "unique": 2288,
+     "elapsed": 30.01,
+     "solved": false
+    },
+    {
+     "rung": "waypoint",
+     "explored": 1452,
+     "unique": 1452,
+     "elapsed": 6.44,
+     "solved": true
+    },
+    {
+     "rung": "tighten<39",
+     "explored": 3660,
+     "unique": 954,
+     "elapsed": 11.57,
+     "solved": false
+    }
+   ]
+  },
+  {
+   "level": 3,
+   "solved": true,
+   "actions": 43,
+   "time_s": 133.7,
+   "explored": 17260,
+   "strategy": "bfs",
+   "rungs": [
+    {
+     "rung": "bfs",
+     "explored": 1512,
+     "unique": 456,
+     "elapsed": 6.08,
+     "solved": false
+    },
+    {
+     "rung": "iw1",
+     "explored": 260,
+     "unique": 78,
+     "elapsed": 2.97,
+     "solved": false
+    },
+    {
+     "rung": "iw2",
+     "explored": 3680,
+     "unique": 1035,
+     "elapsed": 13.15,
+     "solved": false
+    },
+    {
+     "rung": "ehc",
+     "explored": 2180,
+     "unique": 2180,
+     "elapsed": 30.03,
+     "solved": false
+    },
+    {
+     "rung": "waypoint",
+     "explored": 5128,
+     "unique": 5128,
+     "elapsed": 24.8,
+     "solved": false
+    },
+    {
+     "rung": "astar",
+     "explored": 6776,
+     "unique": 1954,
+     "elapsed": 20.14,
+     "solved": false
+    },
+    {
+     "rung": "bfs",
+     "explored": 15080,
+     "unique": 4027,
+     "elapsed": 35.88,
+     "solved": true
+    }
+   ]
+  },
+  {
+   "level": 4,
+   "solved": true,
+   "actions": 44,
+   "time_s": 379.9,
+   "explored": 135184,
+   "strategy": "bfs",
+   "rungs": [
+    {
+     "rung": "bfs",
+     "explored": 1584,
+     "unique": 523,
+     "elapsed": 6.04,
+     "solved": false
+    },
+    {
+     "rung": "iw1",
+     "explored": 12,
+     "unique": 6,
+     "elapsed": 1.94,
+     "solved": false
+    },
+    {
+     "rung": "iw2",
+     "explored": 12,
+     "unique": 6,
+     "elapsed": 1.96,
+     "solved": false
+    },
+    {
+     "rung": "ehc",
+     "explored": 2272,
+     "unique": 2272,
+     "elapsed": 30.02,
+     "solved": false
+    },
+    {
+     "rung": "waypoint",
+     "explored": 0,
+     "unique": 0,
+     "elapsed": 24.39,
+     "solved": false
+    },
+    {
+     "rung": "astar",
+     "explored": 12,
+     "unique": 6,
+     "elapsed": 1.95,
+     "solved": false
+    },
+    {
+     "rung": "bfs",
+     "explored": 132912,
+     "unique": 35019,
+     "elapsed": 312.75,
+     "solved": true
+    }
+   ]
+  }
+ ]
+}
