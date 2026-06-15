@@ -104,6 +104,13 @@ class SearchAgent:
             cands += _visible_clicks(obs.frame)
         return cands or [(a, None) for a in MOVES]
 
+    @staticmethod
+    def _akey(a, d):
+        """Hashable key for a candidate action (clicks distinguished by x,y)."""
+        if d and "x" in d:
+            return (a, d["x"], d["y"])
+        return (a,)
+
     # ---- the search: rollout-based (v17-MCTS-lite, but honest) -------------
     # Honest reset+replay BFS costs O(nodes x depth) REAL actions (replay every
     # sibling) — intractable. Instead, like v17's imagination-MCTS: pick a
@@ -121,6 +128,10 @@ class SearchAgent:
         solution = None
         r0, n = self._replay(env, []); used += n
         visited = {self._h(r0.frame, mask)}
+        # Go-Explore archive of EXPLORE choices: frame-hash -> set of action keys
+        # already tried from that observed state. Steers rollouts toward untried
+        # actions (directed exploration) instead of re-treading randomly.
+        tried = {}
         # frontier node = (path, depth, levels_at_node)
         frontier = [([], 0, root.levels_completed)]
         sims = 0
@@ -137,11 +148,30 @@ class SearchAgent:
             cur, n = self._replay(env, path); used += n
             sims += 1
             cur_path = list(path)
+            deaths = 0
             for t in range(rollout_len):
-                if used >= budget or cur.done:
+                if used >= budget:
                     break
+                if cur.done:
+                    if cur.state == "WIN" or deaths >= 2:
+                        break
+                    # GAME_OVER: return to the node and keep exploring (the tried
+                    # archive will steer to a different action) instead of letting
+                    # the rollout die early and starve the frontier.
+                    deaths += 1
+                    cur, n = self._replay(env, path); used += n
+                    cur_path = list(path)
+                    continue
                 cands = self._candidates(cur)
-                a, d = rng.choice(cands)
+                ch = self._h(cur.frame, mask)
+                ts = tried.setdefault(ch, set())
+                untried = [c for c in cands if self._akey(c[0], c[1]) not in ts]
+                # prefer an untried action (novelty); occasionally random anyway
+                if untried and rng.random() > 0.10:
+                    a, d = rng.choice(untried)
+                else:
+                    a, d = rng.choice(cands)
+                ts.add(self._akey(a, d))
                 cur = env.step(a, d); used += 1
                 cur_path.append((a, d))
                 gained = cur.levels_completed - start_levels

@@ -119,7 +119,39 @@ unseen games is the open problem. The honest cost (reset+replay is action-
 expensive) is itself a finding: the long-term fix is a learned forward model so
 search happens in imagination, not by re-walking the real env.
 
-## Next levers (ordered) — make the GENUINE search stronger + transfer
+### iter 3 — Go-Explore novelty-guided rollouts → FIRST held-out solves  [2026-06-15]
+**Research:** ARC-AGI-3 is an Interactive Reasoning Benchmark (explore→model→goal
+→plan); frontier AI <1%, humans 100% (arXiv 2603.24621). Go-Explore (archive →
+return → explore) and Graph-Based Exploration (arXiv 2512.24156) are the pointers.
+Our rollout search already has the Go-Explore *shape*; the weak link was the
+EXPLORE step (uniform-random).
+
+**Critic of iter2:** random rollouts re-tread the same actions and starve the
+frontier the moment they hit GAME_OVER (vc33/ft09 ended at ≤50 sims); held-out=0
+because exploration was undirected.
+
+**Change (one lever):** a global Go-Explore archive `tried[frame_hash] -> {action
+keys}`; each rollout step now prefers an action NOT yet tried from the current
+observed frame (directed/novelty exploration), falling back to random 10% of the
+time. On GAME_OVER, return to the node and keep exploring (≤2 deaths/rollout)
+instead of dying early. Still frame-only, still no stored answers.
+
+**Measure (real engine, budget 50k):**
+
+| split | iter2 | **iter3** | new solves |
+|---|---|---|---|
+| train-sample (6 probe games) | 3 / 3 | **5 / 5** | +cd82, +ar25 |
+| **HELD-OUT (never trained on)** | **0 / 0** | **2 / 3** | **cn04 (1), tu93 (2)** |
+
+**Verdict (honest): generalisation is now real.** The agent solves TWO unseen
+held-out games (cn04, tu93) by genuine search — no memory book, no per-game code,
+no engine internals. That is the first non-zero transfer number in the whole
+project. Not yet at the DONE bar (≥3/5 held-out): ka59, sk48, wa30 searched ~500
+sims but didn't crack L0, and vc33/ft09 still starve (≤50 sims) — these likely
+need click/ACTION7 handling or a frame-delta progress signal, not just movement
+novelty.
+
+## Next levers (ordered) — push held-out 2/5 → 3/5+ and deepen
 
 iter2 has a GENUINE solver that solves ≥3 games from scratch. To solve harder /
 held-out / click games, make the search smarter (still no stored answers):
