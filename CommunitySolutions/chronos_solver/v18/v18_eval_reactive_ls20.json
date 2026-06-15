@@ -1,0 +1,17 @@
+{
+  "agent": "reactive",
+  "split": "ls20",
+  "budget": 2000,
+  "episodes": 3,
+  "games_scored": 1,
+  "games_with_a_level": 0,
+  "total_levels": 0,
+  "seconds": 3.2,
+  "per_game": {
+    "ls20": {
+      "levels": 0,
+      "win": false,
+      "actions_to_first_level": null
+    }
+  }
+}
