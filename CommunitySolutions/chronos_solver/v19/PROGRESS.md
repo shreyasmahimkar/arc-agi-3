@@ -79,6 +79,49 @@ actual edge (StochasticGoose).** Keep macros as an *optional* candidate (offer
 single-step AND macro moves) rather than replacing single-step, to avoid the
 ls20 overshoot.
 
+## Full 25-game coverage map (iter1 agent, budget 600)  [2026-06-15]
+
+**games_with_a_level = 1 / 23** (lf52, tn36 skipped). Only **lp85** reached
+level 1 (first @ action 45). All 22 others stuck at level 0:
+ar25, bp35, cd82, cn04, dc22, ft09, g50t, ka59, ls20, m0r0, r11l, re86, s5i5,
+sb26, sc25, sk48, sp80, su15, tr87, tu93, vc33, wa30 — all 0.
+
+The one game that moved (lp85) is the one with **no transient counter and short
+goal**. This is the cold-CNN floor: exploration covers states (hundreds of nodes)
+but converts ~nothing without a learned prior. Hence lever #1.
+
+## iter 2 — THE COMBINED AGENT (v13_3 + v12 + v17 + v15 idea), no stored answers  [2026-06-15]
+
+Reconciled the BFS-vs-black-box tension: the 0.22 was scored WITH BFS, and cold
+black-box gets ~1/23 — so BFS reaches the sources on the scored set and earns the
+points. The right design is **BFS-first + black-box fallback**, not pure either.
+
+**Key finding:** `v13_3` is already the v13+v17+v12 fusion — its ladder is
+`bfs-sprint → sense → iw1 → iw2 → ehc → waypoint → astar → bfs-rest → greedy →
+rescues` (IW=BFWS novelty, waypoint=subgoal, greedy=progress — all v17 ideas) +
+the v12 ForgeNet/AEM CNN fallback. And **v15's contribution is the offline-trained
+world model whose knowledge reaches hidden games inside the WEIGHTS, not as stored
+solutions** — which is exactly the no-stored-answers rule.
+
+**Built:**
+- `combined_agent.py` = v13_3 base with the **disk solution-cache removed**
+  (`v13_bfs_cache_*.json` hydrate + save deleted). Solves every level LIVE.
+  Verified: ls20 L0 solved live in **13 actions (optimal), 2.1s, NO cache**.
+  Local source-finder patched so the white-box BFS is testable off-Kaggle.
+- `pretrain.py` → `pretrained_weights.pt`: offline ChangeNet prior, 6258 TRAIN
+  transitions (72% changed), loss 0.63→0.35. The warm start for the black-box
+  fallback on games whose source isn't reachable (= v15's "knowledge in weights").
+
+**Architecture (no answer-book anywhere):**
+1. BFS-first ladder (v13_3) — white-box, live, near-optimal, huge RHAE. ← most points
+2. Black-box fallback = `forge_agent.py` (ChangeNet+graph) with `pretrained_weights.pt`
+   — for hidden/unreachable games and BFS timeouts.
+3. v17 deep search already in the ladder; v15 world-model = the pretrained prior
+   (lightweight) — full PLM optional later.
+
+**Remaining integration:** wire `forge_agent` (pretrained) as the explicit fallback
+inside `combined_agent` when BFS finds no source / times out; optional full v15 PLM.
+
 ## Levers (ordered by RHAE impact)
 
 1. **Offline-pretrain ChangeNet on the public games** — generate `(frame,action)

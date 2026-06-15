@@ -1,0 +1,156 @@
+{
+  "split": "all",
+  "budget": 600,
+  "games_scored": 23,
+  "games_with_a_level": 1,
+  "total_levels": 1,
+  "seconds": 387.5,
+  "per_game": {
+    "ar25": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "bp35": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "cd82": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "cn04": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "dc22": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "ft09": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "g50t": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "ka59": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "lf52": {
+      "skipped": "load-error"
+    },
+    "lp85": {
+      "levels": 1,
+      "win": false,
+      "level_at_action": {
+        "1": 45
+      },
+      "actions_used": 600
+    },
+    "ls20": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "m0r0": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "r11l": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "re86": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "s5i5": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "sb26": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "sc25": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "sk48": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "sp80": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "su15": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "tn36": {
+      "skipped": "load-error"
+    },
+    "tr87": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "tu93": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "vc33": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    },
+    "wa30": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 600
+    }
+  }
+}

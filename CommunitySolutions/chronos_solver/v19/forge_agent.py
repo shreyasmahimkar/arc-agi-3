@@ -98,8 +98,9 @@ class Node:
 class ForgeAgent:
     name = "forge"
 
-    def __init__(self, seed: int = 0, device=None, **kw):
+    def __init__(self, seed: int = 0, device=None, weights=None, **kw):
         self.seed = seed
+        self.weights_path = weights        # optional pretrained ChangeNet prior
         if device is not None:
             self.device = torch.device(device)
         elif torch.cuda.is_available():
@@ -115,6 +116,12 @@ class ForgeAgent:
     def reset(self, game_id: str):
         random.seed(self.seed); np.random.seed(self.seed); torch.manual_seed(self.seed)
         self.net = ChangeNet().to(self.device)
+        if self.weights_path:
+            try:
+                sd = torch.load(self.weights_path, map_location=self.device, weights_only=True)
+                self.net.load_state_dict(sd)
+            except Exception:
+                pass
         self.opt = optim.Adam(self.net.parameters(), lr=3e-4)
         self.buf = deque(maxlen=60000)
         self.buf_seen = set()
