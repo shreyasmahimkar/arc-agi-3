@@ -313,10 +313,16 @@ def _bfs_expand_node(args):
         out.append((act_id, data, res))
     return out
 
-# ==================== [v19] SOLUTION STORAGE FLAG ====================
-# Default ON: store/reuse self-found solutions to disk so local reruns are fast.
-# Set V19_STORE_SOLUTIONS=0 to solve every level from scratch (the honest mode).
+# ==================== [v19] SOLUTION STORAGE FLAGS ====================
+# STORE_SOLUTIONS (default ON): persist self-found BFS solutions to disk (feeds the
+#   offline flywheel/corpus + fast local reruns). Set V19_STORE_SOLUTIONS=0 off.
+# CACHE_FALLBACK (default OFF): when live BFS TIMES OUT on a level, fall back to a
+#   previously-found cached solution for that level (the human-baseline backstop:
+#   reuse experience on a familiar problem). Live BFS always runs FIRST — the cache
+#   is never the primary answer, only the timeout safety net. Enable on the Kaggle
+#   submission with V19_CACHE_FALLBACK=1.
 STORE_SOLUTIONS = os.environ.get('V19_STORE_SOLUTIONS', '1') == '1'
+CACHE_FALLBACK = os.environ.get('V19_CACHE_FALLBACK', '0') == '1'
 SOLUTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'solutions')
 
 def _sol_path(game_id):
@@ -1858,6 +1864,10 @@ def find_game_source_and_class(game_id, arc_env=None):
         for pattern in [
             f"/tmp/*/{gid}/*/{gid}.py",
             f"/kaggle/*/{gid}*/{gid}.py",
+            # [v19] the actual Kaggle competition layout: the engine ships the game
+            # sources here, so live white-box BFS can reach them (this is what v12's
+            # 0.22 run relied on). Recursive so the depth under /kaggle/input varies.
+            f"/kaggle/input/**/environment_files/{gid}/*/{gid}.py",
             f"**/game_sources/**/{gid}.py",
             # [v19] local repo layout so the BFS is testable off-Kaggle too
             os.path.join(_root, "environment_files", gid, "*", f"{gid}.py"),
@@ -1989,33 +1999,48 @@ class MyAgent(Agent):
             s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=bfs_to,
                                workers=HW['workers'])
             if s._bfs.load():
-                logger.info(f"BFS: loaded {cls} from {src}")
-                # [v19] solution storage is FLAGGED (V19_STORE_SOLUTIONS). When on
-                # (default for fast local reruns) hydrate self-found solutions from
-                # the v19 corpus; when off, solve every level live.
-                if STORE_SOLUTIONS:
-                    try:
-                        import json as _json
-                        cp = _sol_path(s.game_id)
-                        if os.path.exists(cp):
-                            with open(cp) as f:
-                                cached = _json.load(f)
-                            for k, v in cached.items():
-                                s._bfs.solutions[int(k)] = [(a, d) for a, d in v]
-                            logger.info(f"BFS: hydrated {len(cached)} cached solutions")
-                    except Exception as e:
-                        logger.warning(f"BFS cache hydrate failed: {e}")
+                # [v19] BFS-FIRST (this is what v12's 0.22 relied on): the game
+                # source IS reachable on Kaggle (the engine ships environment_files),
+                # so we solve every level LIVE. We deliberately DO NOT hydrate the
+                # disk cache here — the cache is a timeout backstop only (loaded
+                # lazily in _try_bfs_solve when live BFS fails), never the primary
+                # answer. Honest solving stays in front.
+                logger.info(f"BFS ACTIVE: loaded {cls} from {src} "
+                            f"(timeout/level={bfs_to:.0f}s, cache_fallback={CACHE_FALLBACK})")
             else:
                 s._bfs = None
                 logger.warning(f"BFS: failed to load game class")
         else:
             logger.warning(f"BFS: game source not found for {s.game_id}")
+    def _load_cached_level(s, level_idx):
+        """The timeout backstop: a previously-found solution for this level, if any.
+        Used ONLY when live BFS times out and V19_CACHE_FALLBACK is on."""
+        try:
+            import json as _json
+            cp = _sol_path(s.game_id)
+            if os.path.exists(cp):
+                with open(cp) as f:
+                    cached = _json.load(f)
+                v = cached.get(str(level_idx))
+                if v:
+                    return [(a, d) for a, d in v]
+        except Exception as e:
+            logger.warning(f"cache fallback load failed: {e}")
+        return None
     def _try_bfs_solve(s, level_idx):
-        """Try to solve current level with BFS, using previous solution for transfer."""
+        """Solve the current level. LIVE BFS first (genuine); on timeout, fall back
+        to a cached solution only if V19_CACHE_FALLBACK is enabled."""
         if s._bfs is None:
             return None
         prev_sol = s._bfs.solutions.get(level_idx - 1) if level_idx > 0 else None
-        sol = s._bfs.solve_level(level_idx, prev_solution=prev_sol)
+        sol = s._bfs.solve_level(level_idx, prev_solution=prev_sol)   # LIVE first
+        if not sol and CACHE_FALLBACK:
+            cached = s._load_cached_level(level_idx)
+            if cached:
+                logger.info(f"BFS timed out on level {level_idx} -> cached fallback "
+                            f"({len(cached)} actions)")
+                s._bfs.solutions[level_idx] = cached
+                sol = cached
         if sol:
             s._bfs_solution = sol
             s._bfs_step = 0

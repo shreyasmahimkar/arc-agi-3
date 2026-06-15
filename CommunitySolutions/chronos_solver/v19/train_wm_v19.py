@@ -119,6 +119,20 @@ def main():
     ap.add_argument("--scratch", action="store_true",
                     help="fresh random init instead of warm-starting from wm_weights.pt")
     args = ap.parse_args()
+    # [v19] protect a higher-capacity model (e.g. an RTX-trained mult=4 WM) from
+    # being silently clobbered by a default mult=1 cycle (exit_cycle.sh passes no
+    # --net-mult). --scratch overrides; --net-mult <N> continues that lineage.
+    _wpath = os.path.join(HERE, "wm_weights.pt")
+    if not args.scratch and os.path.exists(_wpath):
+        try:
+            _em = WorldModel.mult_of(torch.load(_wpath, map_location="cpu", weights_only=True))
+            if _em > args.net_mult:
+                print(f"[wm] existing wm_weights.pt is mult={_em} > requested {args.net_mult}; "
+                      f"refusing to overwrite a higher-capacity model. Re-run with --net-mult "
+                      f"{_em} to continue that lineage, or --scratch to force a fresh smaller model.")
+                return
+        except Exception:
+            pass
     device = torch.device("mps" if torch.backends.mps.is_available()
                           else ("cuda" if torch.cuda.is_available() else "cpu"))
     bsz = args.bsz if args.bsz > 0 else auto_bsz(device)

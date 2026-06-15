@@ -36,7 +36,10 @@ source "$VENV" 2>/dev/null
   echo "--- step 2: harvest transitions ---"
   python harvest_wm.py
   echo "--- step 3: retrain world model (20 epochs, ~5 min budget) ---"
-  timeout 300 python train_wm_v19.py --epochs 20
+  # --net-mult 4 continues the RTX-trained mult=4 lineage (warm-start + held-out
+  # gate). Without it the default mult=1 run is blocked by train_wm's guard, so it
+  # can never clobber the superior RTX wm_weights.pt.
+  timeout 300 python train_wm_v19.py --epochs 20 --net-mult 4
   # DEPRIORITISED (breadth > one hard level): a light WM-attempt only, so it
   # never steals budget from breadth solving. Scale back up later if desired.
   echo "--- step 4: light WM-imagination attempt (deprioritised) ---"
