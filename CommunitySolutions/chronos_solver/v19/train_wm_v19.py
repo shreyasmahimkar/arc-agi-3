@@ -95,6 +95,8 @@ def main():
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--bsz", type=int, default=128)
     ap.add_argument("--reward-weight", type=float, default=20.0)  # optimistic upweight
+    ap.add_argument("--scratch", action="store_true",
+                    help="fresh random init instead of warm-starting from wm_weights.pt")
     args = ap.parse_args()
     device = torch.device("mps" if torch.backends.mps.is_available()
                           else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -110,6 +112,17 @@ def main():
     Fho, NFho, Aho = F_[is_ho], NF[is_ho], A[is_ho]
 
     net = WorldModel().to(device)
+    # WARM-START: continue from the previous world model so knowledge ACCUMULATES
+    # across cycles instead of re-learning from scratch each run. (--scratch to
+    # force a fresh init.)
+    wpath = os.path.join(HERE, "wm_weights.pt")
+    warm = False
+    if not args.scratch and os.path.exists(wpath):
+        try:
+            net.load_state_dict(torch.load(wpath, map_location=device, weights_only=True))
+            warm = True
+        except Exception:
+            pass
     opt = torch.optim.Adam(net.parameters(), lr=3e-4)
     n = len(Ftr); logp = os.path.join(HERE, "WM_LOG.md")
     if not os.path.exists(logp):
@@ -119,7 +132,12 @@ def main():
                     "accuracy on CHANGED pixels (the real dynamics metric).\n\n")
             f.write("| epoch | train_loss | HO pix-acc | HO chg-acc | best | secs |\n")
             f.write("|---|---|---|---|---|---|\n")
+    # only KEEP this run's weights if held-out generalisation beats the warm
+    # baseline — so the saved model improves monotonically across cycles.
     best_chg = 0.0; t0 = time.time()
+    if warm:
+        _, best_chg = evaluate(net, Fho, NFho, Aho, device)
+        print(f"[wm] warm-start: prior held-out chg-acc={best_chg:.3f} (keep only if beaten)")
     for ep in range(1, args.epochs + 1):
         perm = np.random.permutation(n); tot = 0.0; nb = 0
         for i in range(0, n, args.bsz):
