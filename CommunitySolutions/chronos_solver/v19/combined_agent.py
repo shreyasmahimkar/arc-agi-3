@@ -576,6 +576,46 @@ class BFSSolver:
             logger.warning(f"BFS: chained baseline failed: {e}")
             return None
 
+    def verify_solution(self, level_idx, sol):
+        """Replay the chained baseline (L0..L{level_idx-1}) + `sol` on ONE clean
+        engine and confirm levels_completed actually reaches level_idx+1. Parallel
+        BFS can return a plan that does not replay deterministically on reactive-
+        block games (ls20 rotating blocks); this is the guardrail that catches such
+        a plan BEFORE the agent commits to it in the live episode."""
+        if not sol:
+            return False
+        try:
+            if level_idx > 0 and all(i in self.solutions for i in range(level_idx)):
+                res = self._make_start_state(level_idx)
+                if res is None:
+                    return False
+                g, _ = res
+            else:
+                g = self.game_cls()
+                g.set_level(level_idx)
+                g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+                g.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+            r = None
+            for a, d in sol:
+                ai = ActionInput(id=GameAction.from_id(a), data=d) if d else ActionInput(id=GameAction.from_id(a))
+                r = g.perform_action(ai, raw=True)
+            return r is not None and getattr(r, "levels_completed", 0) >= level_idx + 1
+        except Exception as e:
+            logger.warning(f"verify_solution L{level_idx}: {e}")
+            return False
+
+    def solve_level_deterministic(self, level_idx, prev_solution=None):
+        """Re-solve a level single-threaded (workers=1) so the path is guaranteed
+        to replay deterministically — the reliable fallback when parallel BFS
+        returns a plan that fails verify_solution."""
+        saved = self.workers
+        self.workers = 1
+        self.solutions.pop(level_idx, None)          # force a fresh search (skip cache hit)
+        try:
+            return self.solve_level(level_idx, prev_solution=prev_solution, strategy='auto')
+        finally:
+            self.workers = saved
+
     def solve_level(self, level_idx, max_states=500000, prev_solution=None, frontier_path=None, strategy='bfs'):
         """Find optimal solution for a level via BFS (Memory Optimised via Action Replay)."""
         if not self.game_cls:
@@ -1996,8 +2036,13 @@ class MyAgent(Agent):
             # [v13] V13_BFS_TIMEOUT lets the harness cap in-play solving when
             # levels are expected to come from the offline cache
             bfs_to = float(os.environ.get('V13_BFS_TIMEOUT', 180))
+            # [v19] BFS worker count. Parallel expansion is faster but on reactive-
+            # block games (ls20) it can yield plans that don't replay deterministically
+            # in the live episode. V19_BFS_WORKERS=1 forces deterministic, replay-valid
+            # search (verify_solution + the deterministic re-solve are the safety net).
+            bfs_workers = int(os.environ.get('V19_BFS_WORKERS', HW['workers']))
             s._bfs = BFSSolver(src, cls, scan_timeout=5, bfs_timeout=bfs_to,
-                               workers=HW['workers'])
+                               workers=bfs_workers)
             if s._bfs.load():
                 # [v19] BFS-FIRST (this is what v12's 0.22 relied on): the game
                 # source IS reachable on Kaggle (the engine ships environment_files),
@@ -2033,7 +2078,21 @@ class MyAgent(Agent):
         if s._bfs is None:
             return None
         prev_sol = s._bfs.solutions.get(level_idx - 1) if level_idx > 0 else None
-        sol = s._bfs.solve_level(level_idx, prev_solution=prev_sol)   # LIVE first
+        # strategy='auto' = the full v13/v17 ladder (bfs -> waypoint -> A* -> IW ->
+        # EHC -> greedy), same as the offline corpus solver. Plain 'bfs' times out on
+        # deep levels (ls20 L4 ~44 actions); the ladder cracks them. "All that v17 did."
+        sol = s._bfs.solve_level(level_idx, prev_solution=prev_sol, strategy='auto')   # LIVE first
+        # [v19 GUARDRAIL] commit only REPLAY-VALID plans. Parallel BFS can return a
+        # plan that doesn't replay deterministically on reactive-block games (ls20);
+        # verify on a clean engine and, if it fails, re-solve single-threaded.
+        if sol and not s._bfs.verify_solution(level_idx, sol):
+            logger.warning(f"BFS L{level_idx}: parallel plan failed replay-verify "
+                           f"-> deterministic re-solve")
+            sol = s._bfs.solve_level_deterministic(level_idx, prev_solution=prev_sol)
+            if sol and not s._bfs.verify_solution(level_idx, sol):
+                logger.warning(f"BFS L{level_idx}: deterministic plan ALSO failed verify -> drop")
+                s._bfs.solutions.pop(level_idx, None)
+                sol = None
         if not sol and CACHE_FALLBACK:
             cached = s._load_cached_level(level_idx)
             if cached:
