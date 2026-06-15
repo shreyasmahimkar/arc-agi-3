@@ -1958,6 +1958,9 @@ class MyAgent(Agent):
         s._bfs_solution = None
         s._bfs_step = 0
         s._bfs_tried = False
+        # [v19] pretrained black-box fallback (used only when no white-box source)
+        s._forge = None
+        s._use_forge = False
     def append_frame(s, f):
         s.frames.append(f)
         if len(s.frames) > s._MAX_FRAMES: s.frames = s.frames[-s._MAX_FRAMES:]
@@ -2235,15 +2238,66 @@ class MyAgent(Agent):
     def is_done(s, frames, lf):
         try: return lf.state is GameState.WIN or (time.time()-s.start_time) >= 8*3600-300
         except: return True
+    def _setup_forge(s):
+        """No white-box source -> load the pretrained black-box agent (knowledge
+        in weights, NOT stored solutions)."""
+        try:
+            from forge_agent import ForgeAgent
+            here = os.path.dirname(os.path.abspath(__file__))
+            wpath = None
+            for wp in ('/kaggle/input/forge-pretrained-weights/pretrained_weights.pt',
+                       os.path.join(here, 'pretrained_weights.pt'), 'pretrained_weights.pt'):
+                if os.path.exists(wp):
+                    wpath = wp; break
+            s._forge = ForgeAgent(weights=wpath)
+            s._forge.reset(s.game_id)
+            s._use_forge = True
+            logger.info(f"[v19] no white-box source -> black-box fallback "
+                        f"(prior={'loaded' if wpath else 'cold'})")
+        except Exception as e:
+            logger.warning(f"forge fallback setup failed: {e}")
+            s._use_forge = False
+
+    def _forge_decide(s, lf, lvl):
+        """Adapt FrameData -> Obs, ask ForgeAgent, adapt (action_id,data) -> GameAction."""
+        if not lf.frame:
+            a = GameAction.ACTION1; a.reasoning = "forge:noframe"; return a
+        class _Obs:  # minimal shim of blackbox_env.Obs
+            pass
+        obs = _Obs()
+        obs.frame = np.array(lf.frame, dtype=np.uint8)[-1]
+        obs.levels_completed = lvl
+        st = getattr(lf.state, "value", lf.state)
+        obs.state = str(st)
+        aa = getattr(lf, "available_actions", None) or []
+        obs.available_actions = tuple(a.value if hasattr(a, "value") else int(a) for a in aa)
+        aid, data = s._forge.act(obs)
+        if aid == 0:
+            a = GameAction.RESET
+        elif aid == 6:
+            a = GameAction.ACTION6
+            if data:
+                a.set_data({"x": int(data["x"]), "y": int(data["y"])})
+        else:
+            a = GameAction.from_id(aid)
+        a.reasoning = "forge"
+        return a
+
     def choose_action(s, frames, lf):
         try:
             lvl = s._lvl(lf)
+            # [v19] one-time: init white-box BFS; if NO game source is reachable
+            # (a truly hidden game), route the whole game through the pretrained
+            # black-box ForgeAgent fallback instead.
+            if not s._bfs_tried:
+                s._bfs_tried = True
+                s._init_bfs()
+                if s._bfs is None:
+                    s._setup_forge()
+            if s._use_forge:
+                return s._forge_decide(lf, lvl)
             # ===== LEVEL CHANGE =====
             if lvl != s.cl:
-                # Init BFS solver on first level
-                if not s._bfs_tried:
-                    s._bfs_tried = True
-                    s._init_bfs()
                 # Try BFS for this level
                 s._bfs_solution = None
                 s._bfs_step = 0

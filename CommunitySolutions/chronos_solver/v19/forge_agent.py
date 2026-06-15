@@ -25,6 +25,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+# self-contained constants (no blackbox_env dep — Kaggle-safe)
+MOVES = [1, 2, 3, 4]
+RESET = 0
+CLICK = 6
 GRID = 64
 N_SIMPLE = 5                # ACTION1..ACTION5 -> akey 0..4 ; action_id = akey+1
 CLICK_BASE = N_SIMPLE       # click akey = CLICK_BASE + y*64 + x ; action_id 6

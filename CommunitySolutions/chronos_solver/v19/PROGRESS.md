@@ -119,8 +119,16 @@ solutions** — which is exactly the no-stored-answers rule.
 3. v17 deep search already in the ladder; v15 world-model = the pretrained prior
    (lightweight) — full PLM optional later.
 
-**Remaining integration:** wire `forge_agent` (pretrained) as the explicit fallback
-inside `combined_agent` when BFS finds no source / times out; optional full v15 PLM.
+**Wiring DONE (verified end-to-end):** `combined_agent.choose_action` now routes
+no-white-box-source games to the pretrained `ForgeAgent` (`_setup_forge` +
+`_forge_decide` adapter: FrameData→Obs→ForgeAgent→GameAction). `forge_agent` made
+self-contained (no blackbox_env dep) → Kaggle-safe.
+- TEST white-box (ls20): solved L0 in **13 steps optimal**, live BFS, no cache.
+- TEST fallback (source forced None): pretrained agent loads, returns valid action.
+
+**Still optional:** full v15 PLM world model (the pretrained ChangeNet is the
+lightweight stand-in); use forge as fallback ALSO on BFS *timeouts* (not just
+no-source), not yet wired.
 
 ## Levers (ordered by RHAE impact)
 
