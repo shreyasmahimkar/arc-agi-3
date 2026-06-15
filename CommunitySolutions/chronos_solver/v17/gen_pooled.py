@@ -22,6 +22,16 @@ from vlog import get_logger
 
 HERE = os.path.dirname(__file__)
 POOL = os.path.join(HERE, "models", "pool.npz")
+_TOK = {"on": False, "tok": None}
+
+
+def feat(frame):
+    """State featurizer: 76-d object summary, or (token spatial ++ object) if a
+    tokenizer is active (iter-4)."""
+    if _TOK["on"]:
+        import tokenizer
+        return tokenizer.combined_feature(frame, _TOK["tok"], E.object_features)
+    return E.object_features(frame)
 ACTION_CLASSES = [1, 2, 3, 4, 6]
 ALL_GAMES = ["ar25", "bp35", "cd82", "cn04", "dc22", "ft09", "g50t", "ka59",
              "lf52", "lp85", "ls20", "m0r0", "r11l", "re86", "s5i5", "sb26",
@@ -49,13 +59,13 @@ def collect_game(game, explore_eps, steps, lg):
         for lvl in range(len(cache)):
             for act in cache[str(lvl)]:
                 a = act[0]; d = act[1] if len(act) > 1 and act[1] else None
-                of = E.object_features(f)
+                of = feat(f)
                 r2 = E.perform(g, a, d); f2 = E.frame_of(r2)
                 if f2 is None:
                     break
                 prog = sum(1 for k, v in _scal(g).items() if root.get(k) != v)
                 win = bool(r2.levels_completed > 0 and a == act[0] and lvl < r2.levels_completed)
-                rows.append((of, _aclass(a), E.object_features(f2), 1 if prog else 0,
+                rows.append((of, _aclass(a), feat(f2), 1 if prog else 0,
                              1 if r2.levels_completed > lvl else 0, gi))
                 f = f2
     except Exception as e:
@@ -73,13 +83,13 @@ def collect_game(game, explore_eps, steps, lg):
                     a, d = random.choice(cl) if cl else (random.choice(E.MOVES), None)
                 else:
                     a, d = random.choice(E.MOVES), None
-                of = E.object_features(f)
+                of = feat(f)
                 r2 = E.perform(g, a, d); f2 = E.frame_of(r2)
                 if f2 is None:
                     break
                 prog = sum(1 for k, v in _scal(g).items() if root.get(k) != v)
                 win = bool(r2.levels_completed > 0)
-                rows.append((of, _aclass(a), E.object_features(f2),
+                rows.append((of, _aclass(a), feat(f2),
                              1 if prog else 0, 1 if win else 0, gi))
                 f = f2
     except Exception as e:
@@ -94,13 +104,24 @@ def main():
     ap.add_argument("--explore-eps", type=int, default=6)
     ap.add_argument("--steps", type=int, default=40)
     ap.add_argument("--reset", action="store_true")
+    ap.add_argument("--tokenize", action="store_true", help="use token+object features (iter4)")
     args = ap.parse_args()
     lg = get_logger("pool", "pool")
     os.makedirs(os.path.join(HERE, "models"), exist_ok=True)
 
+    global POOL
+    DIM = 76
+    if args.tokenize:
+        import tokenizer
+        _TOK["tok"] = tokenizer.Tokenizer.load(os.path.join(HERE, "models", "tokenizer.npz"))
+        _TOK["on"] = True
+        DIM = _TOK["tok"].feat_dim + 76
+        POOL = os.path.join(HERE, "models", "pool_tok.npz")
+        lg.info(f"[POOL] tokenize mode: feat_dim={DIM} -> {POOL}")
+
     if args.reset or not os.path.exists(POOL):
-        S = np.zeros((0, 76), np.float32); A = np.zeros((0,), np.int64)
-        NS = np.zeros((0, 76), np.float32); P = np.zeros((0,), np.int64)
+        S = np.zeros((0, DIM), np.float32); A = np.zeros((0,), np.int64)
+        NS = np.zeros((0, DIM), np.float32); P = np.zeros((0,), np.int64)
         W = np.zeros((0,), np.int64); GI = np.zeros((0,), np.int64)
     else:
         d = np.load(POOL)
