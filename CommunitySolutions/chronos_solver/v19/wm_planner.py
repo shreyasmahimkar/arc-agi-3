@@ -61,7 +61,8 @@ class WMPlanner:
         self.loaded = False
         if os.path.exists(wp):
             try:
-                self.net.load_state_dict(torch.load(wp, map_location=self.device, weights_only=True))
+                sd = torch.load(wp, map_location=self.device, weights_only=True)
+                self.net = WorldModel.from_state_dict(sd).to(self.device)  # match trained width
                 self.loaded = True
             except Exception:
                 pass

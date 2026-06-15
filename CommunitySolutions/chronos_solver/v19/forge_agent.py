@@ -38,6 +38,41 @@ MACRO_CAP = 40              # v17 borrow: a movement repeats until the frame sto
                             # Capped so a counter/animation can't loop forever.
 
 
+def make_grad_scaler(enabled):
+    """AMP loss scaler that works across torch versions (new torch.amp API first,
+    old torch.cuda.amp fallback) and is a no-op when disabled."""
+    try:
+        return torch.amp.GradScaler("cuda", enabled=enabled)      # torch >= 2.3
+    except (AttributeError, TypeError):
+        return torch.cuda.amp.GradScaler(enabled=enabled)         # older torch
+
+
+def amp_autocast(enabled):
+    """fp16 autocast on CUDA when enabled; a no-op context otherwise. Avoids ever
+    passing device_type='mps'/'cpu' to autocast (which can raise on some builds)."""
+    import contextlib
+    if enabled:
+        return torch.autocast(device_type="cuda", dtype=torch.float16)
+    return contextlib.nullcontext()
+
+
+def auto_bsz(device, base=128):
+    """Default batch size from the GPU's VRAM (mirrors combined_agent's HW tiers
+    without importing the heavy module). Big batch only earns its keep on a big
+    card with a big corpus — the offline-training graduation lever."""
+    try:
+        if getattr(device, "type", str(device)) == "cuda":
+            vram = torch.cuda.get_device_properties(0).total_memory / 1e9
+            if vram > 80:   # RTX PRO 6000 Blackwell (96GB)
+                return 1024
+            if vram > 30:   # RTX 6000 Ada (48GB)
+                return 512
+            return 256       # T4 / P100 (16GB)
+    except Exception:
+        pass
+    return base              # cpu / mps
+
+
 def featurize(frames: torch.Tensor) -> torch.Tensor:
     """(B,64,64) int64 -> (B,21,64,64). Identical at train and inference."""
     B = frames.shape[0]
@@ -68,21 +103,28 @@ class ResBlock(nn.Module):
 
 
 class ChangeNet(nn.Module):
-    def __init__(self, in_ch=FEAT_CH):
+    # base stem width = 32 channels; `mult` scales the whole trunk so a bigger
+    # offline-training box (e.g. RTX PRO 6000) can train a higher-capacity prior.
+    # The shipped weights stay a plain state_dict; consumers infer `mult` from the
+    # checkpoint via from_state_dict, so any width loads everywhere automatically.
+    BASE = 32
+
+    def __init__(self, in_ch=FEAT_CH, mult=1):
         super().__init__()
+        c1, c2, c3 = 32 * mult, 64 * mult, 128 * mult
         self.stem = nn.Sequential(
-            nn.Conv2d(in_ch, 32, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 128, 3, padding=1), nn.ReLU())
-        self.res1 = ResBlock(128); self.res2 = ResBlock(128)
+            nn.Conv2d(in_ch, c1, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(c1, c2, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(c2, c3, 3, padding=1), nn.ReLU())
+        self.res1 = ResBlock(c3); self.res2 = ResBlock(c3)
         self.a_pool = nn.AdaptiveAvgPool2d(4)
-        self.a_fc1 = nn.Linear(128 * 16, 256)
-        self.a_fc2 = nn.Linear(256, N_SIMPLE)
+        self.a_fc1 = nn.Linear(c3 * 16, 256 * mult)
+        self.a_fc2 = nn.Linear(256 * mult, N_SIMPLE)
         self.drop = nn.Dropout(0.1)
         self.c_dec = nn.Sequential(
-            nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 32, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(32, 1, 1))
+            nn.Conv2d(c3, c2, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(c2, 32 * mult, 3, padding=1), nn.ReLU(),
+            nn.Conv2d(32 * mult, 1, 1))
 
     def forward(self, x):
         f = self.res2(self.res1(self.stem(x)))
@@ -90,6 +132,18 @@ class ChangeNet(nn.Module):
         a_logits = self.a_fc2(self.drop(F.relu(self.a_fc1(a))))
         c_logits = self.c_dec(f).squeeze(1)
         return a_logits, c_logits
+
+    @staticmethod
+    def mult_of(sd):
+        """Infer the width multiplier from a saved state_dict (first stem conv)."""
+        return max(1, int(sd["stem.0.weight"].shape[0]) // ChangeNet.BASE)
+
+    @classmethod
+    def from_state_dict(cls, sd, in_ch=FEAT_CH):
+        """Build a ChangeNet matching the checkpoint's width and load it."""
+        net = cls(in_ch=in_ch, mult=cls.mult_of(sd))
+        net.load_state_dict(sd)
+        return net
 
 
 class Node:
@@ -119,13 +173,18 @@ class ForgeAgent:
     # one fresh agent per game (CNN learns this game's dynamics online)
     def reset(self, game_id: str):
         random.seed(self.seed); np.random.seed(self.seed); torch.manual_seed(self.seed)
-        self.net = ChangeNet().to(self.device)
+        # Load the pretrained prior at WHATEVER width it was trained at (the
+        # checkpoint shape decides). Falls back to a cold default-width net if the
+        # weights are missing/unreadable — never a silent shape-mismatch failure.
+        self.net = None
         if self.weights_path:
             try:
                 sd = torch.load(self.weights_path, map_location=self.device, weights_only=True)
-                self.net.load_state_dict(sd)
+                self.net = ChangeNet.from_state_dict(sd).to(self.device)
             except Exception:
-                pass
+                self.net = None
+        if self.net is None:
+            self.net = ChangeNet().to(self.device)
         self.opt = optim.Adam(self.net.parameters(), lr=3e-4)
         self.buf = deque(maxlen=60000)
         self.buf_seen = set()
