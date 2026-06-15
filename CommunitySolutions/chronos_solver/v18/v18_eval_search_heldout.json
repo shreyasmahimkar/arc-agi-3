@@ -1,21 +1,21 @@
 {
   "agent": "search",
   "split": "heldout",
-  "budget": 150000,
-  "episodes": 1,
+  "budget": 50000,
+  "episodes": 2,
   "games_scored": 5,
   "games_with_a_level": 3,
   "total_levels": 4,
-  "seconds": 208.1,
+  "seconds": 223.2,
   "per_game": {
     "cn04": {
       "levels": 1,
       "win": false,
-      "actions_to_first_level": 34082,
-      "budget": 150000,
-      "actions_used": 150000,
-      "solution_len": 73,
-      "expansions": null
+      "actions_to_first_level": 2294,
+      "budget": 50000,
+      "actions_used": 50003,
+      "solution_len": 65,
+      "sims": 357
     },
     "ka59": {
       "levels": 0,
@@ -25,20 +25,20 @@
     "sk48": {
       "levels": 1,
       "win": false,
-      "actions_to_first_level": 40465,
-      "budget": 150000,
-      "actions_used": 150000,
-      "solution_len": 129,
-      "expansions": null
+      "actions_to_first_level": 32249,
+      "budget": 50000,
+      "actions_used": 50026,
+      "solution_len": 93,
+      "sims": 551
     },
     "tu93": {
       "levels": 2,
       "win": false,
-      "actions_to_first_level": 12651,
-      "budget": 150000,
-      "actions_used": 150000,
-      "solution_len": 89,
-      "expansions": null
+      "actions_to_first_level": 21811,
+      "budget": 50000,
+      "actions_used": 50051,
+      "solution_len": 82,
+      "sims": 349
     },
     "wa30": {
       "levels": 0,

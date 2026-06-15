@@ -151,26 +151,59 @@ sims but didn't crack L0, and vc33/ft09 still starve (≤50 sims) — these like
 need click/ACTION7 handling or a frame-delta progress signal, not just movement
 novelty.
 
-## Next levers (ordered) — push held-out 2/5 → 3/5+ and deepen
+### iter 4 — click/ACTION handling → HELD-OUT 3/5 (DONE bar reached)  [2026-06-15]
+**Critic of iter3:** the starving games were diagnosed via `available_actions`:
+vc33/ft09 = `(6,)` — PURE CLICK games (movement candidates were invalid no-ops);
+wa30 has ACTION5, sk48 has ACTION7. So movement-only search could never progress
+them.
 
-iter3 reached held-out 2/5 (cn04, tu93). DONE bar = 3/5. The unsolved held-out
-games (ka59, sk48, wa30) searched ~500 sims without cracking L0; vc33/ft09 starve
-at ≤50 sims. To push past 2/5 (still no stored answers):
+**Change:** (a) click targets from connected-component centroids of the visible
+frame (cached per frame-hash), so click games get real candidates; (b) include
+ACTION5/7 as simple candidates; (c) **simple-first action priority** in rollouts
+(untried simple > untried click > …) so adding clicks for click-games does NOT
+dilute movement-game search.
 
-1. ~~Novelty-guided rollouts (BFWS)~~ — DONE iter3 (Go-Explore archive). Worked.
-2. **Click / ACTION6 / ACTION7 as first-class rollout actions** — the starving
-   games (vc33, ft09; maybe ka59/sk48/wa30) are likely click/non-movement puzzles;
-   movement novelty can't progress them. Probe `available_actions` for 6/7 and
-   make visible-object click targets (and ACTION7) real rollout candidates.
+**Honest path (kept for the record):** the first cut (clicks with no priority)
+REGRESSED held-out — it broke cn04 (movement search drowned by 16 click branches:
+0 across 3 seeds) while gaining vc33. The simple-first priority (iter4b) fixed it.
+
+**Measure (real engine, budget 50k, single seed):**
+
+| game | iter3 | iter4b | note |
+|---|---|---|---|
+| cn04 (HO) | 1 | 1 | recovered after regression fix |
+| sk48 (HO) | 0 | **1** | NEW — ACTION7+click game |
+| tu93 (HO) | 2 | 2 | held |
+| ka59 (HO) | 0 | 0 | searched ~505 sims, no L0 |
+| wa30 (HO) | 0 | 0 | searched ~606 sims, no L0 |
+| vc33 (train) | 0 | **2** | NEW — pure click game |
+| ft09 (train) | 0 | 0 | component clicks don't change its frame (sims=1) — needs different click targets |
+
+**HELD-OUT: 2/5 → 3/5 (cn04, sk48, tu93).** This reaches the DONE threshold — the
+agent generalises to ≥3 unseen games by genuine search, no stored answers. Caveat:
+single-seed stochastic search; confirmed with the official harness (episodes=2).
+
+## Next levers (ordered) — beyond the DONE bar (4/5, 5/5, deeper levels)
+
+iter4 reached held-out 3/5 (cn04, sk48, tu93). Remaining: ka59, wa30 (~500-sim
+near-misses), ft09 (click-target bug). To go 3/5 → 4/5 → 5/5 and deeper levels
+(still no stored answers):
+
+1. ~~Novelty-guided rollouts (BFWS)~~ — DONE iter3. ~~Click/ACTION handling~~ — DONE iter4.
+2. **Better click targets for ft09** — component centroids don't change ft09's
+   frame (sims=1). Try a coarse click GRID + edge/corner points of components, or
+   click cells (not just centroids); ft09 = `(6,)` so clicks are the only lever.
 3. **Observable frame-delta progress reward** — bias frontier selection by "how
-   much NEW structure appeared vs level start" (honest, frame-only), so search
-   heads toward interactions. The honest replacement for v17's `__dict__` progress.
-4. **More budget / multi-seed restarts** for the ~500-sim near-misses (ka59, sk48,
-   wa30) — cheap to try; a second seed or 2× budget may tip them over.
-5. **Learned forward model for IMAGINATION search** — learn `(frame,action)->
+   much NEW structure appeared vs level start" (honest, frame-only) so search
+   heads toward interactions. Should tip the ka59/wa30 near-misses.
+4. **More budget / multi-seed restarts** for ka59, wa30 — cheap; 2× budget or a
+   best-of-N seeds may crack them.
+5. **Deeper levels** — once L0 falls, chain to L1+ (re-root search at the new
+   level start, Go-Explore style) to raise total_levels, not just games.
+6. **Learned forward model for IMAGINATION search** — learn `(frame,action)->
    frame` from observed transitions (offline, TRAIN only) and search inside the
    model (free), removing the reset+replay action cost. Big lift, biggest payoff.
-6. **Hook the official harness** (`ARC-AGI-3-Agents`) and submit to the live
+7. **Hook the official harness** (`ARC-AGI-3-Agents`) and submit to the live
    leaderboard.
 
 ## Hard rules (never break — this is what v17 got wrong)

@@ -27,17 +27,32 @@ import numpy as np
 from blackbox_env import MOVES, RESET, CLICK
 
 
-def _visible_clicks(frame, limit=6):
+def _click_targets(frame, limit=16):
+    """Click targets from the VISIBLE frame — one per connected component of each
+    non-background colour (so multiple same-colour objects each get their own
+    click), largest first. Frame-only, honest. Click games (available=(6,)) need
+    this density; per-colour centroids alone collapse distinct objects."""
+    H, W = frame.shape
     flat = frame.flatten()
-    bg = np.bincount(flat, minlength=16).argmax()
-    cnt = np.bincount(flat, minlength=16)
-    out = []
-    for c in range(1, 16):
-        if c == bg or cnt[c] == 0 or cnt[c] > frame.size // 2:
-            continue
-        ys, xs = np.where(frame == c)
-        out.append((CLICK, {"x": int(xs.mean()), "y": int(ys.mean()), "game_id": "v18"}))
-    return out[:limit]
+    bg = int(np.bincount(flat, minlength=16).argmax())
+    seen = np.zeros((H, W), dtype=bool)
+    comps = []
+    for y in range(H):
+        for x in range(W):
+            if seen[y, x] or frame[y, x] == bg:
+                continue
+            c = frame[y, x]
+            stack = [(y, x)]; seen[y, x] = True; xs = []; ys = []
+            while stack:
+                cy, cx = stack.pop(); xs.append(cx); ys.append(cy)
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = cy + dy, cx + dx
+                    if 0 <= ny < H and 0 <= nx < W and not seen[ny, nx] and frame[ny, nx] == c:
+                        seen[ny, nx] = True; stack.append((ny, nx))
+            comps.append((len(xs), int(sum(xs) / len(xs)), int(sum(ys) / len(ys))))
+    comps.sort(key=lambda t: -t[0])           # largest components first
+    return [(CLICK, {"x": cx, "y": cy, "game_id": "v18"})
+            for _, cx, cy in comps[:limit]]
 
 
 class SearchAgent:
@@ -99,10 +114,12 @@ class SearchAgent:
 
     def _candidates(self, obs):
         avail = list(obs.available_actions or MOVES)
+        # simple actions (moves + ACTION5/ACTION7 etc.), excluding click/reset
         cands = [(a, None) for a in avail if a not in (CLICK, RESET)]
         if CLICK in avail:
-            cands += _visible_clicks(obs.frame)
-        return cands or [(a, None) for a in MOVES]
+            cands += _click_targets(obs.frame)
+        # only fall back to raw MOVES if the game truly exposed nothing usable
+        return cands or [(a, None) for a in (avail or MOVES) if a != RESET] or [(a, None) for a in MOVES]
 
     @staticmethod
     def _akey(a, d):
@@ -132,6 +149,7 @@ class SearchAgent:
         # already tried from that observed state. Steers rollouts toward untried
         # actions (directed exploration) instead of re-treading randomly.
         tried = {}
+        cand_cache = {}        # frame-hash -> candidate actions (component clicks are costly)
         # frontier node = (path, depth, levels_at_node)
         frontier = [([], 0, root.levels_completed)]
         sims = 0
@@ -162,15 +180,25 @@ class SearchAgent:
                     cur, n = self._replay(env, path); used += n
                     cur_path = list(path)
                     continue
-                cands = self._candidates(cur)
                 ch = self._h(cur.frame, mask)
+                cands = cand_cache.get(ch)
+                if cands is None:
+                    cands = self._candidates(cur)
+                    cand_cache[ch] = cands
                 ts = tried.setdefault(ch, set())
-                untried = [c for c in cands if self._akey(c[0], c[1]) not in ts]
-                # prefer an untried action (novelty); occasionally random anyway
-                if untried and rng.random() > 0.10:
-                    a, d = rng.choice(untried)
-                else:
+                # Priority: untried SIMPLE (movement/ACTION5/7) > untried CLICK >
+                # any simple > anything. Keeps movement games movement-focused (so
+                # adding clicks for click-games doesn't dilute them), while pure
+                # click games (no simple actions) naturally fall through to clicks.
+                ut_simple = [c for c in cands if c[0] != CLICK and self._akey(c[0], c[1]) not in ts]
+                ut_click = [c for c in cands if c[0] == CLICK and self._akey(c[0], c[1]) not in ts]
+                simple = [c for c in cands if c[0] != CLICK]
+                if rng.random() < 0.10:
                     a, d = rng.choice(cands)
+                else:
+                    for bucket in (ut_simple, ut_click, simple, cands):
+                        if bucket:
+                            a, d = rng.choice(bucket); break
                 ts.add(self._akey(a, d))
                 cur = env.step(a, d); used += 1
                 cur_path.append((a, d))
