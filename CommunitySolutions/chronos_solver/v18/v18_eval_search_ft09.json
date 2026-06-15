@@ -1,0 +1,21 @@
+{
+  "agent": "search",
+  "split": "ft09",
+  "budget": 50000,
+  "episodes": 1,
+  "games_scored": 1,
+  "games_with_a_level": 1,
+  "total_levels": 1,
+  "seconds": 23.1,
+  "per_game": {
+    "ft09": {
+      "levels": 1,
+      "win": false,
+      "actions_to_first_level": 744,
+      "budget": 50000,
+      "actions_used": 50071,
+      "solution_len": 112,
+      "sims": 268
+    }
+  }
+}

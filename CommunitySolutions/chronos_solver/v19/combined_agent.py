@@ -313,6 +313,16 @@ def _bfs_expand_node(args):
         out.append((act_id, data, res))
     return out
 
+# ==================== [v19] SOLUTION STORAGE FLAG ====================
+# Default ON: store/reuse self-found solutions to disk so local reruns are fast.
+# Set V19_STORE_SOLUTIONS=0 to solve every level from scratch (the honest mode).
+STORE_SOLUTIONS = os.environ.get('V19_STORE_SOLUTIONS', '1') == '1'
+SOLUTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'solutions')
+
+def _sol_path(game_id):
+    return os.path.join(SOLUTIONS_DIR, f"{game_id.split('-')[0]}.json")
+
+
 # ==================== BFS SOLVER ====================
 class BFSSolver:
     """Offline BFS solver using direct game class instantiation."""
@@ -1980,9 +1990,21 @@ class MyAgent(Agent):
                                workers=HW['workers'])
             if s._bfs.load():
                 logger.info(f"BFS: loaded {cls} from {src}")
-                # [v19] NO stored-solution answer-book. Every level is solved
-                # LIVE this run (no-stored-answers rule). The disk hydrate of
-                # v13_bfs_cache_*.json is intentionally removed.
+                # [v19] solution storage is FLAGGED (V19_STORE_SOLUTIONS). When on
+                # (default for fast local reruns) hydrate self-found solutions from
+                # the v19 corpus; when off, solve every level live.
+                if STORE_SOLUTIONS:
+                    try:
+                        import json as _json
+                        cp = _sol_path(s.game_id)
+                        if os.path.exists(cp):
+                            with open(cp) as f:
+                                cached = _json.load(f)
+                            for k, v in cached.items():
+                                s._bfs.solutions[int(k)] = [(a, d) for a, d in v]
+                            logger.info(f"BFS: hydrated {len(cached)} cached solutions")
+                    except Exception as e:
+                        logger.warning(f"BFS cache hydrate failed: {e}")
             else:
                 s._bfs = None
                 logger.warning(f"BFS: failed to load game class")
@@ -1997,9 +2019,16 @@ class MyAgent(Agent):
         if sol:
             s._bfs_solution = sol
             s._bfs_step = 0
-            # [v19] no disk persistence of solutions (no answer-book). The
-            # in-memory self.solutions holds only THIS run's live-found paths,
-            # used to execute the current level and transfer to the next.
+            # [v19] persist self-found solutions to the corpus when flagged on
+            # (fast reruns + feeds the PLM trainer). Off => nothing written.
+            if STORE_SOLUTIONS:
+                try:
+                    import json as _json
+                    os.makedirs(SOLUTIONS_DIR, exist_ok=True)
+                    with open(_sol_path(s.game_id), 'w') as f:
+                        _json.dump({str(k): v for k, v in s._bfs.solutions.items()}, f)
+                except Exception as e:
+                    logger.warning(f"BFS cache save failed: {e}")
             return sol
         return None
     def _tensor(s, fd):

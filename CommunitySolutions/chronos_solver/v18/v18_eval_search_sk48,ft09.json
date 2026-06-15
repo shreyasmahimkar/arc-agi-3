@@ -1,0 +1,30 @@
+{
+  "agent": "search",
+  "split": "sk48,ft09",
+  "budget": 50000,
+  "episodes": 2,
+  "games_scored": 2,
+  "games_with_a_level": 2,
+  "total_levels": 2,
+  "seconds": 106.8,
+  "per_game": {
+    "sk48": {
+      "levels": 1,
+      "win": false,
+      "actions_to_first_level": 5972,
+      "budget": 50000,
+      "actions_used": 50016,
+      "solution_len": 104,
+      "sims": 506
+    },
+    "ft09": {
+      "levels": 1,
+      "win": false,
+      "actions_to_first_level": 697,
+      "budget": 50000,
+      "actions_used": 50000,
+      "solution_len": 59,
+      "sims": 412
+    }
+  }
+}
