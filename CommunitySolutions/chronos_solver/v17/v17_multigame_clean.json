@@ -1,0 +1,47 @@
+{
+  "cd82": {
+    "lvl": 2,
+    "solved": false,
+    "best_progress": 5,
+    "sims": 893,
+    "time": 9.01
+  },
+  "sc25": {
+    "lvl": 2,
+    "solved": false,
+    "best_progress": 0,
+    "sims": 315,
+    "time": 9.02
+  },
+  "sp80": {
+    "lvl": 2,
+    "solved": false,
+    "best_progress": 1,
+    "sims": 634,
+    "time": 9.0
+  },
+  "r11l": {
+    "lvl": 1,
+    "solved": false,
+    "best_progress": 2,
+    "sims": 677
+  },
+  "tr87": {
+    "lvl": 1,
+    "solved": false,
+    "best_progress": 0,
+    "sims": 160
+  },
+  "su15": {
+    "lvl": 0,
+    "solved": false,
+    "best_progress": 2,
+    "sims": 1525
+  },
+  "g50t": {
+    "lvl": 0,
+    "solved": false,
+    "best_progress": 0,
+    "sims": 399
+  }
+}

@@ -20,7 +20,7 @@ Everything the solver needs to know about a game lives here:
 All logging routed through vlog so a run is fully reconstructable.
 """
 from __future__ import annotations
-import sys, os, json, importlib.util, hashlib, copy, time
+import sys, os, json, importlib.util, hashlib, copy, time, random
 import numpy as np
 
 # --- make the shim importable & install pydantic if the real one is gone ---
@@ -45,9 +45,18 @@ def _bootstrap_arcengine():
     if not hits:
         raise ImportError("arcengine not importable and no venv copy found")
     src = hits[0]
-    clean = "/tmp/v17_aelib"
+    # namespace per-uid so a stale dir owned by another sandbox session can't
+    # block us with permission errors (iter6 fix).
+    clean = f"/tmp/v17_aelib_{os.getuid()}"
     os.makedirs(clean, exist_ok=True)
     link = os.path.join(clean, "arcengine")
+    # os.path.exists is False for a BROKEN symlink (points at a Mac path that
+    # doesn't resolve in the sandbox) — use lexists and clear stale links.
+    if os.path.lexists(link) and not os.path.exists(link):
+        try:
+            os.unlink(link)
+        except OSError:
+            pass
     if not os.path.exists(link):
         try:
             os.symlink(src, link)
@@ -214,6 +223,50 @@ def detect_transient_mask(game, level, cache, n_probe=6):
     mask = np.zeros_like(f0, dtype=bool)
     mask[row_always, :] = True
     return mask if mask.any() else None
+
+
+def detect_transient_scalars(game, level, cache, n_walk=48, nav_thresh=3,
+                             n_seeds=2, seed0=0):
+    """iter6: clean the cross-game progress signal by masking NAVIGATION scalars.
+
+    The progress proxy = count of engine scalar attrs that differ from the
+    level-start values. iter5 found this is polluted: on cd82 nearly every step
+    "registers progress" because moving changes the player coordinates, and a
+    changed coordinate trivially counts as progress (walking == fake progress).
+
+    The fix mirrors detect_transient_mask (which masks HUD/timer ROWS of the
+    frame). We run a *movement-only* random walk from the level start and record
+    how many DISTINCT values each scalar attr takes. Player-position / camera /
+    free-running coordinate attrs roam over many values just from wandering
+    (>nav_thresh distinct values); genuine state-machine attrs (keys collected,
+    locks opened, doors, goal flags) stay constant under pure movement and only
+    flip on a specific interaction. So: high-variance-under-movement keys are
+    NAVIGATION and are excluded from the progress count. Two random seeds are
+    intersected so a key must be high-variance under *both* walks to be masked
+    (avoids masking a real event that happened to fire once during a walk).
+
+    Returns: set of attr-name strings to ignore in prog(). Empty if none.
+    Verified behaviour (iter6): cd82 -> {2 coord keys}; su15 -> {} (its
+    progress=2 is genuine, no nav keys); sc25 -> {2 coord keys}.
+    """
+    nav_per_seed = []
+    for s in range(n_seeds):
+        rng = random.Random(seed0 + s)
+        g = load_game(game)
+        chain_to_level(g, level, cache)
+        vals = {k: {v} for k, v in scalar_state(g)}
+        for _ in range(n_walk):
+            try:
+                perform(g, rng.choice(MOVES))
+            except Exception:
+                break
+            for k, v in scalar_state(g):
+                vals.setdefault(k, set()).add(v)
+        nav_per_seed.append({k for k, sset in vals.items() if len(sset) > nav_thresh})
+    if not nav_per_seed:
+        return set()
+    nav = set.intersection(*nav_per_seed) if len(nav_per_seed) > 1 else nav_per_seed[0]
+    return nav
 
 
 # ----------------------------------------------------- object features ------

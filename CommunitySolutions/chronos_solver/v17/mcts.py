@@ -60,7 +60,7 @@ def solve_mcts_az(game, level, *, sims=8000, time_budget=30.0, c_puct=2.0,
                   mask=None, prefix_path=None, max_progress=4, micro_rollout=4,
                   value_weight=0.3, world_model=None, wm_policy=None,
                   imagine_len=10, wm_weight=1.0, iter_tag="v17az",
-                  log_every=600, logger=None):
+                  clean_progress=True, log_every=600, logger=None):
     """AlphaZero-style value-guided MCTS: PUCT selection with a TRM policy
     prior + value-network leaf evaluation (NO long random rollout). value_fn
     maps a frame -> scalar value in [0,1] (the TRM value head). A short
@@ -84,9 +84,19 @@ def solve_mcts_az(game, level, *, sims=8000, time_budget=30.0, c_puct=2.0,
     def restore():
         gg = pickle.loads(l5snap); gg._clean_levels = _CLEAN[game]; return gg
 
+    prog_ignore = set()
+    if clean_progress:
+        try:
+            prog_ignore = E.detect_transient_scalars(game, level, cache)
+        except Exception as _e:
+            prog_ignore = set()
+    lg.info(f"[CLEAN-PROG] L{level} ignoring {len(prog_ignore)} transient scalars: "
+            f"{sorted(prog_ignore)[:8]}")
+
     def prog(gg):
         cur = dict(E.scalar_state(gg))
-        return sum(1 for k, v in cur.items() if root_scalar.get(k) != v)
+        return sum(1 for k, v in cur.items()
+                   if k not in prog_ignore and root_scalar.get(k) != v)
 
     def cands(frame):
         return [(a, None) for a in E.MOVES] + E.dynamic_clicks(frame, limit=8)
@@ -229,7 +239,7 @@ def solve_mcts_az(game, level, *, sims=8000, time_budget=30.0, c_puct=2.0,
 def solve_mcts(game, level, *, sims=4000, time_budget=30.0, rollout_len=40,
                c_uct=1.4, heuristic_fn=None, policy_fn=None, macro_moves=True,
                macro_max=8, mask=None, prefix_path=None, progress_bonus=10.0,
-               iter_tag="v17mcts", log_every=400, logger=None):
+               clean_progress=True, iter_tag="v17mcts", log_every=400, logger=None):
     lg = logger or get_logger("mcts", iter_tag)
     ctr = Counters(); t0 = time.time()
     cache, _ = E.load_cache(game)
@@ -248,9 +258,19 @@ def solve_mcts(game, level, *, sims=4000, time_budget=30.0, rollout_len=40,
         gg = pickle.loads(l5snap); gg._clean_levels = _CLEAN[game]
         return gg
 
+    prog_ignore = set()
+    if clean_progress:
+        try:
+            prog_ignore = E.detect_transient_scalars(game, level, cache)
+        except Exception:
+            prog_ignore = set()
+    lg.info(f"[CLEAN-PROG] L{level} ignoring {len(prog_ignore)} transient scalars: "
+            f"{sorted(prog_ignore)[:8]}")
+
     def prog(gg):
         cur = dict(E.scalar_state(gg))
-        return sum(1 for k, v in cur.items() if root_scalar.get(k) != v)
+        return sum(1 for k, v in cur.items()
+                   if k not in prog_ignore and root_scalar.get(k) != v)
 
     def cands(frame):
         cs = [(a, None) for a in E.MOVES] + E.dynamic_clicks(frame, limit=8)
