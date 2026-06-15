@@ -8,6 +8,10 @@
 # games are discoverable (drop the 200-game testbed in environment_files or set
 # V19_EXTRA_GAMES_DIR and it gets picked up).
 set -u
+# cron runs with a minimal PATH that lacks Homebrew — without this, `timeout`
+# (brew coreutils, /opt/homebrew/bin) is "command not found" and every solve/
+# train/attempt step silently skips. Put the real PATH back.
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 DIR="/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v19"
 VENV="/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/.venv312/bin/activate"
 LOCK="/tmp/v19_exit_cycle.lock"
