@@ -1,0 +1,40 @@
+{
+  "split": "heldout",
+  "budget": 800,
+  "games_scored": 5,
+  "games_with_a_level": 0,
+  "total_levels": 0,
+  "seconds": 73.4,
+  "per_game": {
+    "cn04": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    },
+    "ka59": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    },
+    "sk48": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    },
+    "tu93": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    },
+    "wa30": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    }
+  }
+}

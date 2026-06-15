@@ -1,0 +1,16 @@
+{
+  "split": "ls20",
+  "budget": 300,
+  "games_scored": 1,
+  "games_with_a_level": 0,
+  "total_levels": 0,
+  "seconds": 13.8,
+  "per_game": {
+    "ls20": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 300
+    }
+  }
+}

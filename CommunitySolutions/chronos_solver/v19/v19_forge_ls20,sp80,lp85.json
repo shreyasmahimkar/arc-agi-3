@@ -1,0 +1,30 @@
+{
+  "split": "ls20,sp80,lp85",
+  "budget": 800,
+  "games_scored": 3,
+  "games_with_a_level": 1,
+  "total_levels": 1,
+  "seconds": 66.6,
+  "per_game": {
+    "ls20": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    },
+    "sp80": {
+      "levels": 0,
+      "win": false,
+      "level_at_action": {},
+      "actions_used": 800
+    },
+    "lp85": {
+      "levels": 1,
+      "win": false,
+      "level_at_action": {
+        "1": 45
+      },
+      "actions_used": 800
+    }
+  }
+}
