@@ -56,3 +56,5 @@ object features still don't lift chg-acc with more data, the limiter is the task
 + architecture, and no GPU helps the score.
 
 <!-- ExpA 06-15 11:25: baseline=0.149 aug(ncolor=3,d4=False)=0.130 lift=-0.020 -->
+
+<!-- ExpA 06-15 16:15: baseline=0.106 aug(ncolor=4,d4=True)=0.045 lift=-0.061 -->
