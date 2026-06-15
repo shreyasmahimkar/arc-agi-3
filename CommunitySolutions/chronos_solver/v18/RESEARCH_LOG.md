@@ -25,3 +25,17 @@ Sources:
 - https://arxiv.org/abs/2603.24621
 - https://arxiv.org/pdf/2512.24156
 - https://arcprize.org/arc-agi/3
+
+## 2026-06-15 — click-target spatial coverage (iter5 input)
+
+Engineering fix rather than new technique — web search skipped.
+
+**Diagnosis via brute-force scan:** ft09's clickable positions are at
+{36,44,52}×{36,44,52} on the 64×64 frame, but its 64 connected-component centroids
+all land OFF those positions. A grid with step=H//5=12 ([6,18,30,42,54]) also misses
+them; step=H//8=8 ([4,12,20,28,36,44,52,60]) hits all three target values.
+
+**Key finding:** vc33 has 256 productive click positions (every pixel changes the
+frame), so centroid-focus (~10 candidates from iter4) was the right branching factor;
+64-pt grid is too diffuse. Next lever: adaptive branching (fewer candidates when
+frame is click-rich, more when centroid-based candidates produce no change).

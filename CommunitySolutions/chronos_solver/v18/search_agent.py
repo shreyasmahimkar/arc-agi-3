@@ -27,11 +27,14 @@ import numpy as np
 from blackbox_env import MOVES, RESET, CLICK
 
 
-def _click_targets(frame, limit=16):
-    """Click targets from the VISIBLE frame — one per connected component of each
-    non-background colour (so multiple same-colour objects each get their own
-    click), largest first. Frame-only, honest. Click games (available=(6,)) need
-    this density; per-colour centroids alone collapse distinct objects."""
+def _click_targets(frame, limit=64):
+    """Click targets from the VISIBLE frame: dense grid FIRST (capped at 64),
+    then component centroids + bbox corners in remaining slots. Grid-first
+    guarantees even spatial coverage even when the frame has many small components
+    (e.g. ft09 has 64 components which would crowd out the grid at a low limit).
+    step=H//8 on a 64-px frame gives [4,12,20,28,36,44,52,60], which hits typical
+    puzzle-button positions that a coarser step misses. Limit=64 keeps click
+    candidates manageable for budget=50k search (128 was too dilute for sk48)."""
     H, W = frame.shape
     flat = frame.flatten()
     bg = int(np.bincount(flat, minlength=16).argmax())
@@ -49,10 +52,32 @@ def _click_targets(frame, limit=16):
                     ny, nx = cy + dy, cx + dx
                     if 0 <= ny < H and 0 <= nx < W and not seen[ny, nx] and frame[ny, nx] == c:
                         seen[ny, nx] = True; stack.append((ny, nx))
-            comps.append((len(xs), int(sum(xs) / len(xs)), int(sum(ys) / len(ys))))
+            comps.append((len(xs), int(sum(xs) / len(xs)), int(sum(ys) / len(ys)),
+                          min(xs), min(ys), max(xs), max(ys)))
     comps.sort(key=lambda t: -t[0])           # largest components first
-    return [(CLICK, {"x": cx, "y": cy, "game_id": "v18"})
-            for _, cx, cy in comps[:limit]]
+
+    pts = []; seen_pts = set()
+    def _add(x, y):
+        p = (x, y)
+        if p not in seen_pts and len(pts) < limit:
+            seen_pts.add(p); pts.append((CLICK, {"x": x, "y": y, "game_id": "v18"}))
+
+    # Grid FIRST — guarantees spatial coverage regardless of component count.
+    # step=H//8 gives 8 evenly-spaced points per axis on a 64-px frame.
+    step = max(1, min(H, W) // 8)
+    for gy in range(step // 2, H, step):
+        for gx in range(step // 2, W, step):
+            _add(gx, gy)
+
+    # Component centroids + bbox corners to supplement near actual objects
+    for _, cx, cy, x0, y0, x1, y1 in comps:
+        _add(cx, cy)              # centroid
+        _add(x0, y0)              # top-left bbox corner
+        _add(x1, y1)              # bottom-right bbox corner
+        _add(x0, y1)              # bottom-left
+        _add(x1, y0)              # top-right
+
+    return pts
 
 
 class SearchAgent:
@@ -128,6 +153,15 @@ class SearchAgent:
             return (a, d["x"], d["y"])
         return (a,)
 
+    def _cell(self, frame, mask):
+        """Go-Explore 'cell': a COARSE downscale of the (masked) frame. Used only
+        to bias which frontier node to expand toward under-explored coarse regions
+        — NOT for dedup, so fine state distinctions (precise movement) are kept."""
+        f = frame
+        if mask is not None:
+            f = frame.copy(); f[mask] = 0
+        return f[::6, ::6].tobytes()      # ~11x11 cell, colour-preserving
+
     # ---- the search: rollout-based (v17-MCTS-lite, but honest) -------------
     # Honest reset+replay BFS costs O(nodes x depth) REAL actions (replay every
     # sibling) — intractable. Instead, like v17's imagination-MCTS: pick a
@@ -150,19 +184,24 @@ class SearchAgent:
         # actions (directed exploration) instead of re-treading randomly.
         tried = {}
         cand_cache = {}        # frame-hash -> candidate actions (component clicks are costly)
-        # frontier node = (path, depth, levels_at_node)
-        frontier = [([], 0, root.levels_completed)]
+        cell_count = {}        # Go-Explore cell -> times a node in it was expanded
+        # frontier node = (path, depth, levels_at_node, cell)
+        frontier = [([], 0, root.levels_completed, self._cell(r0.frame, mask))]
         sims = 0
 
         while frontier and used < budget:
-            # best-first with exploration: usually expand the most-progressed,
-            # shallowest node; sometimes a random one so a plateau can't starve.
+            # best-first: most-progressed first, then the LEAST-explored coarse
+            # cell (Go-Explore: return to under-explored regions), then shallowest.
+            # Sometimes a random node so a plateau can't starve.
             if rng.random() < explore_p:
                 idx = rng.randrange(len(frontier))
             else:
                 idx = max(range(len(frontier)),
-                          key=lambda i: (frontier[i][2], -frontier[i][1]))
-            path, depth, _ = frontier.pop(idx)
+                          key=lambda i: (frontier[i][2],
+                                         -cell_count.get(frontier[i][3], 0),
+                                         -frontier[i][1]))
+            path, depth, _, node_cell = frontier.pop(idx)
+            cell_count[node_cell] = cell_count.get(node_cell, 0) + 1
             cur, n = self._replay(env, path); used += n
             sims += 1
             cur_path = list(path)
@@ -214,7 +253,8 @@ class SearchAgent:
                 hh = self._h(cur.frame, mask)
                 if hh not in visited and not cur.done and depth + 1 + t <= self.max_depth + rollout_len:
                     visited.add(hh)
-                    frontier.append((list(cur_path), depth + 1 + t, cur.levels_completed))
+                    frontier.append((list(cur_path), depth + 1 + t,
+                                     cur.levels_completed, self._cell(cur.frame, mask)))
 
         best["actions_used"] = used
         best["sims"] = sims

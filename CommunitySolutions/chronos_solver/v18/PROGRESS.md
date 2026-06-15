@@ -183,23 +183,63 @@ REGRESSED held-out — it broke cn04 (movement search drowned by 16 click branch
 agent generalises to ≥3 unseen games by genuine search, no stored answers. Caveat:
 single-seed stochastic search; confirmed with the official harness (episodes=2).
 
+### iter 5 — grid-first click targets → ft09 train solve; vc33 trade-off  [2026-06-15]
+**Critic of iter4:** ft09 starves at 1 sim because its 64 connected components have
+centroids that are ALL off its clickable pixels (confirmed by brute-force: the
+working clicks are at {36,44,52}×{36,44,52}, but centroid is at ~(46,46)). We need
+a spatial grid with step≤8 so these positions appear as candidates.
+
+**Change:** `_click_targets` now puts a DENSE GRID (step=H//8=8, 8×8=64 pts) FIRST
+in the candidate list, then supplements with component centroids + bbox corners. Key
+details: (a) grid-first guarantees coverage even when a game has many tiny components
+(ft09 has 64 — they would crowd out a low-limit list); (b) limit=64 caps total
+candidates (128 regressed sk48 — too dilute for its fixed budget of 50k).
+
+**Honest path:** initial `limit=24` grid had wrong step (H//5=12 → [6,18,30,42,54]
+misses {36,44,52}); then `limit=64` but component-first left grid out; then
+`limit=128` broke sk48; final: grid-first, step=H//8, limit=64 — both ft09 AND sk48
+solve. Trade-off: vc33 (train, pure-click) regresses from 2→0 levels. Root cause:
+vc33 has 256 productive click positions (every pixel works), so centroid-focus (~10
+candidates) was the right branching factor; 64 grid pts are too diffuse at 50k
+budget. vc33's component centroids also land off the 8-pixel grid (10 components,
+non-grid centroids). Fix for vc33 is a future lever (adaptive grid density).
+
+**Measure (real engine, budget 50k):**
+
+| game | iter4 | iter5 | note |
+|---|---|---|---|
+| cn04 (HO) | 1 | 1 | held |
+| sk48 (HO) | 1 | **1** | held (recovered from 128-limit regression; limit=64 solves) |
+| tu93 (HO) | 2 | 2 | held |
+| ka59 (HO) | 0 | 0 | no change |
+| wa30 (HO) | 0 | 0 | no change |
+| ft09 (train) | 0 | **1** | NEW — grid-first step=8 hits clickable pixels (sol_len=59) |
+| vc33 (train) | 2 | 0 | REGRESSED — grid too diffuse vs centroid-focused 10-candidate search |
+
+**HELD-OUT: 3/5 maintained (cn04, sk48, tu93).** ft09 fixed as a train bonus;
+vc33 regress is documented. vc33 fix (adaptive branching for click-rich games) is
+the new top lever.
+
 ## Next levers (ordered) — beyond the DONE bar (4/5, 5/5, deeper levels)
 
-iter4 reached held-out 3/5 (cn04, sk48, tu93). Remaining: ka59, wa30 (~500-sim
-near-misses), ft09 (click-target bug). To go 3/5 → 4/5 → 5/5 and deeper levels
-(still no stored answers):
+iter5 state: held-out 3/5 (cn04, sk48, tu93). Open: ka59, wa30 (~500-sim near-
+misses), vc33 (grid-too-diffuse regression). To go 3/5 → 4/5 → 5/5:
 
-1. ~~Novelty-guided rollouts (BFWS)~~ — DONE iter3. ~~Click/ACTION handling~~ — DONE iter4.
-2. **Better click targets for ft09** — component centroids don't change ft09's
-   frame (sims=1). Try a coarse click GRID + edge/corner points of components, or
-   click cells (not just centroids); ft09 = `(6,)` so clicks are the only lever.
-3. **Observable frame-delta progress reward** — bias frontier selection by "how
-   much NEW structure appeared vs level start" (honest, frame-only) so search
-   heads toward interactions. Should tip the ka59/wa30 near-misses.
+1. ~~Novelty-guided rollouts~~ — DONE iter3. ~~Click/ACTION handling~~ — DONE iter4.
+   ~~Grid-first click targets~~ — DONE iter5.
+2. **Fix vc33 regression (adaptive click branching)** — vc33 needs ~10 focused
+   candidates (centroid-based), but ft09 needs grid-64. One approach: if a frame
+   has ≤N distinct component centroids that change the frame, prefer centroids; else
+   use the grid. Or: use centroid-first with a SMALL grid supplement (8 hand-picked
+   positions at step=8 but only for a 3×3 band {28..36..44..52} — NOT per-game
+   knowledge, but a strategic band). Requires testing both vc33 and ft09.
+3. **Observable frame-delta progress reward** — bias frontier selection by "how much
+   NEW structure appeared vs level start" (honest, frame-only) so search heads toward
+   interactions. Should tip the ka59/wa30 near-misses.
 4. **More budget / multi-seed restarts** for ka59, wa30 — cheap; 2× budget or a
    best-of-N seeds may crack them.
-5. **Deeper levels** — once L0 falls, chain to L1+ (re-root search at the new
-   level start, Go-Explore style) to raise total_levels, not just games.
+5. **Deeper levels** — once L0 falls, chain to L1+ (re-root search at the new level
+   start, Go-Explore style) to raise total_levels, not just games.
 6. **Learned forward model for IMAGINATION search** — learn `(frame,action)->
    frame` from observed transitions (offline, TRAIN only) and search inside the
    model (free), removing the reset+replay action cost. Big lift, biggest payoff.
