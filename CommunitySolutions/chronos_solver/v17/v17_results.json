@@ -1,0 +1,1353 @@
+{
+  "game": "ls20",
+  "target": "L5",
+  "iterations": {
+    "1": {
+      "name": "BFS baseline",
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "bfs",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 253,
+        "visited": 421,
+        "best_depth": 8,
+        "time": 18.05,
+        "nodes_per_s": 14.01
+      },
+      "wall_time_s": 20.6
+    },
+    "2": {
+      "name": "trace+dataset",
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5_probe": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "bfs",
+        "status": "BUDGET",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 80,
+        "visited": 158,
+        "best_depth": 6,
+        "time": 5.68,
+        "nodes_per_s": 14.09
+      },
+      "dataset": {
+        "states": 368,
+        "feat_dim": 108,
+        "trace_transitions": 960
+      },
+      "wall_time_s": 37.9
+    },
+    "3": {
+      "name": "ForgeNet A*",
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 212,
+        "visited": 610,
+        "best_depth": 38,
+        "time": 20.08,
+        "nodes_per_s": 10.56
+      },
+      "wall_time_s": 22.6
+    },
+    "4": {
+      "name": "TRM PUCT",
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "puct",
+        "status": "BUDGET",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 500,
+        "visited": 656,
+        "best_depth": 172,
+        "time": 18.3,
+        "nodes_per_s": 27.32
+      },
+      "wall_time_s": 22.1
+    },
+    "5": {
+      "name": "ForgeNet+TRM+ExIt",
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5_round1": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 373,
+        "visited": 1026,
+        "best_depth": 39,
+        "time": 34.07,
+        "nodes_per_s": 10.95
+      },
+      "L5_SOLVED": false,
+      "wall_time_s": 36.4
+    },
+    "6": {
+      "name": "sweep pw=4",
+      "config": {
+        "strategy": "astar",
+        "w": 2.0,
+        "pw": 4,
+        "pol": false,
+        "nb": 500,
+        "tb": 22
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 182,
+        "visited": 574,
+        "best_depth": 39,
+        "best_progress": 1,
+        "time": 22.03,
+        "nodes_per_s": 8.26
+      },
+      "best_progress": 1,
+      "wall_time_s": 22.5
+    },
+    "7": {
+      "name": "sweep pw=8",
+      "config": {
+        "strategy": "astar",
+        "w": 2.0,
+        "pw": 8,
+        "pol": false,
+        "nb": 500,
+        "tb": 16
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 137,
+        "visited": 427,
+        "best_depth": 39,
+        "best_progress": 1,
+        "time": 16.08,
+        "nodes_per_s": 8.52
+      },
+      "best_progress": 1,
+      "wall_time_s": 16.6
+    },
+    "8": {
+      "name": "sweep pw=16",
+      "config": {
+        "strategy": "astar",
+        "w": 1.5,
+        "pw": 16,
+        "pol": false,
+        "nb": 500,
+        "tb": 16
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 131,
+        "visited": 428,
+        "best_depth": 35,
+        "best_progress": 1,
+        "time": 16.14,
+        "nodes_per_s": 8.12
+      },
+      "best_progress": 1,
+      "wall_time_s": 16.6
+    },
+    "9": {
+      "name": "greedy+progress",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 8,
+        "pol": false,
+        "nb": 500,
+        "tb": 16
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "greedy",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 135,
+        "visited": 397,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 16.09,
+        "nodes_per_s": 8.39
+      },
+      "best_progress": 1,
+      "wall_time_s": 16.5
+    },
+    "10": {
+      "name": "astar w=3 pw=8",
+      "config": {
+        "strategy": "astar",
+        "w": 3.0,
+        "pw": 8,
+        "pol": false,
+        "nb": 500,
+        "tb": 16
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 134,
+        "visited": 415,
+        "best_depth": 39,
+        "best_progress": 1,
+        "time": 16.1,
+        "nodes_per_s": 8.32
+      },
+      "best_progress": 1,
+      "wall_time_s": 16.6
+    },
+    "11": {
+      "name": "astar+policy pw=12",
+      "config": {
+        "strategy": "astar",
+        "w": 2.5,
+        "pw": 12,
+        "pol": true,
+        "nb": 500,
+        "tb": 16
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 130,
+        "visited": 413,
+        "best_depth": 39,
+        "best_progress": 1,
+        "time": 16.09,
+        "nodes_per_s": 8.08
+      },
+      "best_progress": 1,
+      "wall_time_s": 16.6
+    },
+    "12": {
+      "name": "ExIt round 1",
+      "config": {
+        "strategy": "astar",
+        "w": 2.0,
+        "pw": 10,
+        "pol": true,
+        "nb": 550,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 163,
+        "visited": 516,
+        "best_depth": 39,
+        "best_progress": 1,
+        "time": 17.08,
+        "nodes_per_s": 9.54
+      },
+      "exit_retrain": {
+        "added_states": 39,
+        "total_states": 407
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.9
+    },
+    "13": {
+      "name": "ExIt round 2",
+      "config": {
+        "strategy": "astar",
+        "w": 2.0,
+        "pw": 10,
+        "pol": true,
+        "nb": 550,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 198,
+        "visited": 399,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.04,
+        "nodes_per_s": 11.62
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.1
+    },
+    "14": {
+      "name": "ExIt round 3",
+      "config": {
+        "strategy": "astar",
+        "w": 2.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 600,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 277,
+        "visited": 407,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.04,
+        "nodes_per_s": 16.25
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.1
+    },
+    "15": {
+      "name": "ExIt round 4",
+      "config": {
+        "strategy": "astar",
+        "w": 2.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 600,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 214,
+        "visited": 331,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.07,
+        "nodes_per_s": 12.54
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.4
+    },
+    "16": {
+      "name": "ExIt round 5",
+      "config": {
+        "strategy": "astar",
+        "w": 1.8,
+        "pw": 14,
+        "pol": true,
+        "nb": 650,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 206,
+        "visited": 294,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.03,
+        "nodes_per_s": 12.1
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.5
+    },
+    "17": {
+      "name": "ExIt round 6",
+      "config": {
+        "strategy": "astar",
+        "w": 1.8,
+        "pw": 14,
+        "pol": true,
+        "nb": 650,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 207,
+        "visited": 332,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.03,
+        "nodes_per_s": 12.15
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.5
+    },
+    "18": {
+      "name": "ExIt round 7",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 14,
+        "pol": true,
+        "nb": 650,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "greedy",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 293,
+        "visited": 406,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.05,
+        "nodes_per_s": 17.19
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.0
+    },
+    "19": {
+      "name": "ExIt round 8",
+      "config": {
+        "strategy": "astar",
+        "w": 1.5,
+        "pw": 16,
+        "pol": true,
+        "nb": 700,
+        "tb": 17
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 311,
+        "visited": 453,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 17.05,
+        "nodes_per_s": 18.24
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 18.4
+    },
+    "20": {
+      "name": "scaled push 1",
+      "config": {
+        "strategy": "astar",
+        "w": 1.8,
+        "pw": 14,
+        "pol": true,
+        "nb": 900,
+        "tb": 30
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 407,
+        "visited": 593,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 30.05,
+        "nodes_per_s": 13.54
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 31.4
+    },
+    "21": {
+      "name": "scaled push 2",
+      "config": {
+        "strategy": "astar",
+        "w": 1.8,
+        "pw": 14,
+        "pol": true,
+        "nb": 900,
+        "tb": 30
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 609,
+        "visited": 845,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 30.01,
+        "nodes_per_s": 20.29
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 31.5
+    },
+    "22": {
+      "name": "scaled push 3",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 16,
+        "pol": true,
+        "nb": 1000,
+        "tb": 32
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "greedy",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 527,
+        "visited": 632,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 32.02,
+        "nodes_per_s": 16.46
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 33.4
+    },
+    "23": {
+      "name": "scaled push 4",
+      "config": {
+        "strategy": "astar",
+        "w": 1.5,
+        "pw": 18,
+        "pol": true,
+        "nb": 1000,
+        "tb": 32
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 438,
+        "visited": 731,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 32.0,
+        "nodes_per_s": 13.69
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 33.5
+    },
+    "24": {
+      "name": "scaled push 5",
+      "config": {
+        "strategy": "astar",
+        "w": 1.5,
+        "pw": 18,
+        "pol": true,
+        "nb": 1100,
+        "tb": 34
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 587,
+        "visited": 988,
+        "best_depth": 43,
+        "best_progress": 2,
+        "time": 34.0,
+        "nodes_per_s": 17.26
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 2,
+      "wall_time_s": 35.1
+    },
+    "25": {
+      "name": "final attack",
+      "config": {
+        "strategy": "astar",
+        "w": 1.6,
+        "pw": 16,
+        "pol": true,
+        "nb": 1200,
+        "tb": 36
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "astar",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 659,
+        "visited": 891,
+        "best_depth": 43,
+        "best_progress": 1,
+        "time": 36.04,
+        "nodes_per_s": 18.29
+      },
+      "exit_retrain": {
+        "added_states": 43,
+        "total_states": 411
+      },
+      "best_progress": 1,
+      "wall_time_s": 37.4
+    },
+    "26": {
+      "name": "Subgoal Search (waypoint re-root)",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 14,
+        "pol": true,
+        "nb": 350,
+        "tb": 8
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "best_depth": 44,
+        "best_progress": 2,
+        "expansions": 427,
+        "status": "TIMEOUT",
+        "solution": null,
+        "nodes_per_s": 0.0,
+        "visited": 744
+      },
+      "best_progress": 2,
+      "wall_time_s": 24.4
+    },
+    "27": {
+      "name": "BFWS novelty (Best-First Width)",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 900,
+        "tb": 34
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "greedy",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 450,
+        "visited": 612,
+        "best_depth": 43,
+        "best_progress": 2,
+        "time": 34.04,
+        "nodes_per_s": 13.22
+      },
+      "best_progress": 2,
+      "wall_time_s": 34.4
+    },
+    "28": {
+      "name": "Macro-actions (move-until-wall) + BFWS",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 700,
+        "tb": 34
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "greedy",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 431,
+        "visited": 504,
+        "best_depth": 230,
+        "best_progress": 2,
+        "time": 34.01,
+        "nodes_per_s": 12.67
+      },
+      "best_progress": 2,
+      "wall_time_s": 34.3
+    },
+    "29": {
+      "name": "Type-based explore + waypoint + novelty + macro",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 400,
+        "tb": 8
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "best_depth": 149,
+        "best_progress": 2,
+        "expansions": 185,
+        "status": "TIMEOUT",
+        "solution": null,
+        "nodes_per_s": 0.0,
+        "visited": 327
+      },
+      "best_progress": 2,
+      "wall_time_s": 16.5
+    },
+    "30": {
+      "name": "Full-stack final attack",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 14,
+        "pol": true,
+        "nb": 600,
+        "tb": 11
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "best_depth": 117,
+        "best_progress": 2,
+        "expansions": 257,
+        "status": "TIMEOUT",
+        "solution": null,
+        "nodes_per_s": 0.0,
+        "visited": 445
+      },
+      "best_progress": 2,
+      "wall_time_s": 22.4
+    }
+  }
+}
