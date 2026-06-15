@@ -1,0 +1,212 @@
+{
+  "ar25": {
+    "game": "ar25",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 0,
+    "sims": 135,
+    "time": 7.05
+  },
+  "bp35": {
+    "game": "bp35",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 1,
+    "sims": 129,
+    "time": 7.08
+  },
+  "cd82": {
+    "game": "cd82",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 7,
+    "sims": 733,
+    "time": 7.01
+  },
+  "cn04": {
+    "game": "cn04",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 1,
+    "sims": 459,
+    "time": 7.0
+  },
+  "dc22": {
+    "game": "dc22",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 0,
+    "sims": 178,
+    "time": 7.03
+  },
+  "ft09": {
+    "game": "ft09",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 0,
+    "sims": 598,
+    "time": 7.01
+  },
+  "g50t": {
+    "game": "g50t",
+    "v13_levels": 0,
+    "v17_cracked_next": false,
+    "v17_levels": 0,
+    "best_progress": 1,
+    "sims": 298,
+    "time": 7.02
+  },
+  "ka59": {
+    "game": "ka59",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 1,
+    "sims": 268,
+    "time": 7.03
+  },
+  "lf52": {
+    "game": "lf52",
+    "v13_levels": 0,
+    "error": "AttributeError(\"Can't pickle local object 'fjvjyhkusr.<locals>.<lambda>'\")",
+    "v17_levels": 0
+  },
+  "lp85": {
+    "game": "lp85",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 0,
+    "sims": 616,
+    "time": 7.01
+  },
+  "m0r0": {
+    "game": "m0r0",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 0,
+    "sims": 510,
+    "time": 7.0
+  },
+  "r11l": {
+    "game": "r11l",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 2,
+    "sims": 560,
+    "time": 7.01
+  },
+  "re86": {
+    "game": "re86",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 0,
+    "sims": 336,
+    "time": 7.01
+  },
+  "s5i5": {
+    "game": "s5i5",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 0,
+    "sims": 1095,
+    "time": 7.0
+  },
+  "sb26": {
+    "game": "sb26",
+    "v13_levels": 0,
+    "v17_cracked_next": false,
+    "v17_levels": 0,
+    "best_progress": 0,
+    "sims": 1024,
+    "time": 7.0
+  },
+  "sc25": {
+    "game": "sc25",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 2,
+    "sims": 255,
+    "time": 7.03
+  },
+  "sk48": {
+    "game": "sk48",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 1,
+    "sims": 203,
+    "time": 7.02
+  },
+  "sp80": {
+    "game": "sp80",
+    "v13_levels": 2,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 2,
+    "sims": 516,
+    "time": 7.01
+  },
+  "su15": {
+    "game": "su15",
+    "v13_levels": 0,
+    "v17_cracked_next": false,
+    "v17_levels": 0,
+    "best_progress": 2,
+    "sims": 1220,
+    "time": 7.0
+  },
+  "tn36": {
+    "game": "tn36",
+    "v13_levels": 0,
+    "error": "AttributeError(\"Can't pickle local object 'dimsufvezo.__init__.<locals>.<lambda>'\")",
+    "v17_levels": 0
+  },
+  "tr87": {
+    "game": "tr87",
+    "v13_levels": 1,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 2,
+    "sims": 132,
+    "time": 7.03
+  },
+  "tu93": {
+    "game": "tu93",
+    "v13_levels": 9,
+    "v17_cracked_next": false,
+    "v17_levels": 9,
+    "best_progress": 0,
+    "sims": 2500,
+    "time": 0.67
+  },
+  "vc33": {
+    "game": "vc33",
+    "v13_levels": 4,
+    "v17_cracked_next": false,
+    "v17_levels": 4,
+    "best_progress": 0,
+    "sims": 328,
+    "time": 7.01
+  },
+  "wa30": {
+    "game": "wa30",
+    "v13_levels": 0,
+    "v17_cracked_next": false,
+    "v17_levels": 0,
+    "best_progress": 0,
+    "sims": 716,
+    "time": 7.01
+  }
+}

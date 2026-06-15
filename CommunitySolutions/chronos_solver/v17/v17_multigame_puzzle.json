@@ -1,0 +1,62 @@
+{
+  "cd82": {
+    "game": "cd82",
+    "v13_levels": 2,
+    "puzzle": true,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 7,
+    "sims": 663,
+    "time": 6.0
+  },
+  "sc25": {
+    "game": "sc25",
+    "v13_levels": 2,
+    "puzzle": true,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 2,
+    "sims": 207,
+    "time": 6.02
+  },
+  "sp80": {
+    "game": "sp80",
+    "v13_levels": 2,
+    "puzzle": true,
+    "v17_cracked_next": false,
+    "v17_levels": 2,
+    "best_progress": 2,
+    "sims": 576,
+    "time": 6.0
+  },
+  "r11l": {
+    "game": "r11l",
+    "v13_levels": 1,
+    "puzzle": true,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 1,
+    "sims": 636,
+    "time": 6.0
+  },
+  "tr87": {
+    "game": "tr87",
+    "v13_levels": 1,
+    "puzzle": true,
+    "v17_cracked_next": false,
+    "v17_levels": 1,
+    "best_progress": 2,
+    "sims": 117,
+    "time": 6.03
+  },
+  "su15": {
+    "game": "su15",
+    "v13_levels": 0,
+    "puzzle": true,
+    "v17_cracked_next": false,
+    "v17_levels": 0,
+    "best_progress": 2,
+    "sims": 1291,
+    "time": 6.0
+  }
+}

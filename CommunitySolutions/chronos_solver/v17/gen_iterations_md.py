@@ -27,7 +27,7 @@ md = ["# v17 — iteration log (auto-generated, 25 iterations)\n",
       "flags) moved vs level start; the dual-key WIN needs the full set.\n",
       "| iter | approach | L0–L4 | RHAE | L5 status | depth | prog | expansions |",
       "|---|---|---|---|---|---|---|---|"]
-for i in range(1, 31):
+for i in range(1, 41):
     r = row(i)
     if not r:
         continue
@@ -42,6 +42,23 @@ md += [
     "| 28 | Macro-actions (move-until-wall) | Botea et al.; options framework | one expansion covers depth ~230; progress 2 |",
     "| 29 | Type-based exploration (multi-queue) | Xie, Müller, Holte, Imai 2014 | progress 2 in 85 expansions (vs 2 rounds before) |",
     "| 30 | full stack (all of the above) | — | progress 2 reliably; progress 3 is the new wall |",
+    "\n## Iterations 31–40 — throughput (multiprocessing, then imagination/MCTS)\n",
+    "| iter | technique | paper | effect on L5 |",
+    "|---|---|---|---|",
+    "| 31–32 | multiprocess best-first (4 cores) | v13 expander | ~2.4× nodes/s (28 vs 12); progress 2 |",
+    "| 33 | MP landmark re-root on cores | — | progress 2, depth 129 |",
+    "| 34 | **forward-rollout MCTS** (UCT + heavy playout) | Browne et al. 2012 | 60,971 states in 30s (~2,000/s, ~12× best-first); progress 2 |",
+    "| 35 | MCTS short rollout / more sims | light-playout MCTS | **progress 3 — first break past 2 in 35 iters** |",
+    "| 36 | MCTS high exploration (c=2.5) | UCT | progress 3 |",
+    "| 37 | MCTS progress-bonus 20 | reward shaping | progress 3 |",
+    "| 38–39 | MCTS waypoint re-root | Subgoal Search + MCTS | progress 3 |",
+    "| 40 | MCTS big-budget (20k sims) | — | progress 3 (wall now 3→4 = the win) |",
+    "\n**Key engine finding:** profiling showed `perform_action` is render-bound "
+    "(~0.4–0.85 ms), so the real engine ceilings at **~2,000 states/sec for ANY "
+    "method**. MCTS wins by spending that budget without per-node snapshots (it "
+    "restores once per simulation and rolls forward), exploring ~12× more states "
+    "than best-first — which is what cracked progress 2→3. Going beyond the render "
+    "cap needs a *learned* world model (v15) that is GPU-batchable.",
 ]
 
 md += [
@@ -65,4 +82,4 @@ md += [
     "\nSee `logs/iterN.log` for the full per-iteration trace.",
 ]
 open(os.path.join(HERE, "ITERATIONS.md"), "w").write("\n".join(md))
-print("wrote ITERATIONS.md with", sum(1 for i in range(1, 31) if d.get(str(i))), "iterations")
+print("wrote ITERATIONS.md with", sum(1 for i in range(1, 41) if d.get(str(i))), "iterations")

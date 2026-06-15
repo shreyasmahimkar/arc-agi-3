@@ -1348,6 +1348,1259 @@
       },
       "best_progress": 2,
       "wall_time_s": 22.4
+    },
+    "31": {
+      "name": "MP greedy+macro (4 workers)",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 700,
+        "tb": 34
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mp-greedy",
+        "status": "BUDGET",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 701,
+        "visited": 842,
+        "best_depth": 136,
+        "best_progress": 2,
+        "time": 25.11,
+        "nodes_per_s": 27.92
+      },
+      "best_progress": 2,
+      "wall_time_s": 25.3
+    },
+    "32": {
+      "name": "MP greedy+macro big-batch",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 900,
+        "tb": 34
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mp-greedy",
+        "status": "BUDGET",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 904,
+        "visited": 1073,
+        "best_depth": 204,
+        "best_progress": 2,
+        "time": 34.19,
+        "nodes_per_s": 26.44
+      },
+      "best_progress": 2,
+      "wall_time_s": 34.4
+    },
+    "33": {
+      "name": "MP waypoint (landmark re-root on cores)",
+      "config": {
+        "strategy": "greedy",
+        "w": 0.0,
+        "pw": 12,
+        "pol": true,
+        "nb": 400,
+        "tb": 10
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mp-greedy",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 294,
+        "visited": 435,
+        "best_depth": 129,
+        "best_progress": 2,
+        "time": 10.07,
+        "nodes_per_s": 29.1
+      },
+      "best_progress": 2,
+      "wall_time_s": 10.7
+    },
+    "34": {
+      "name": "MCTS forward-rollout (UCT+heavy playout)",
+      "config": {
+        "mode": "mcts",
+        "pol": true,
+        "sims": 6000,
+        "tb": 30,
+        "rollout": 40,
+        "cuct": 1.4,
+        "macro": 8
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 336,
+        "visited": 336,
+        "best_depth": 130,
+        "best_progress": 2,
+        "time": 30.02,
+        "nodes_per_s": 11.19
+      },
+      "best_progress": 2,
+      "wall_time_s": 30.3
+    },
+    "35": {
+      "name": "MCTS short rollout (more sims)",
+      "config": {
+        "mode": "mcts",
+        "pol": true,
+        "sims": 9000,
+        "tb": 30,
+        "rollout": 18,
+        "cuct": 1.4,
+        "macro": 6
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 493,
+        "visited": 493,
+        "best_depth": 100,
+        "best_progress": 3,
+        "time": 30.02,
+        "nodes_per_s": 16.42
+      },
+      "best_progress": 3,
+      "wall_time_s": 30.3
+    },
+    "36": {
+      "name": "MCTS high exploration (c=2.5)",
+      "config": {
+        "mode": "mcts",
+        "pol": true,
+        "sims": 8000,
+        "tb": 30,
+        "rollout": 25,
+        "cuct": 2.5,
+        "macro": 6
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 440,
+        "visited": 440,
+        "best_depth": 136,
+        "best_progress": 3,
+        "time": 30.06,
+        "nodes_per_s": 14.64
+      },
+      "best_progress": 3,
+      "wall_time_s": 30.3
+    },
+    "37": {
+      "name": "MCTS progress-bonus 20",
+      "config": {
+        "mode": "mcts",
+        "pol": true,
+        "sims": 8000,
+        "tb": 30,
+        "rollout": 25,
+        "cuct": 1.6,
+        "macro": 6,
+        "pbonus": 20.0
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 436,
+        "visited": 436,
+        "best_depth": 108,
+        "best_progress": 3,
+        "time": 30.01,
+        "nodes_per_s": 14.53
+      },
+      "best_progress": 3,
+      "wall_time_s": 30.2
+    },
+    "38": {
+      "name": "MCTS waypoint re-root",
+      "config": {
+        "mode": "mcts_waypoint",
+        "pol": true,
+        "sims": 4000,
+        "tb": 12,
+        "rollout": 20,
+        "cuct": 1.6,
+        "macro": 6,
+        "rounds": 3
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 624,
+        "visited": 200,
+        "best_depth": 103,
+        "best_progress": 3,
+        "time": 12.05,
+        "nodes_per_s": 16.6
+      },
+      "best_progress": 3,
+      "wall_time_s": 24.3
+    },
+    "39": {
+      "name": "MCTS waypoint deep",
+      "config": {
+        "mode": "mcts_waypoint",
+        "pol": true,
+        "sims": 5000,
+        "tb": 14,
+        "rollout": 22,
+        "cuct": 1.8,
+        "macro": 6,
+        "rounds": 3
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 639,
+        "visited": 206,
+        "best_depth": 124,
+        "best_progress": 3,
+        "time": 14.01,
+        "nodes_per_s": 14.71
+      },
+      "best_progress": 3,
+      "wall_time_s": 28.3
+    },
+    "40": {
+      "name": "MCTS final big-budget attack",
+      "config": {
+        "mode": "mcts",
+        "pol": true,
+        "sims": 20000,
+        "tb": 38,
+        "rollout": 22,
+        "cuct": 1.8,
+        "macro": 6,
+        "pbonus": 15.0
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 591,
+        "visited": 591,
+        "best_depth": 108,
+        "best_progress": 3,
+        "time": 38.03,
+        "nodes_per_s": 15.54
+      },
+      "best_progress": 3,
+      "wall_time_s": 38.3
+    },
+    "41": {
+      "name": "AZ value-MCTS (PUCT+value)",
+      "config": {
+        "mode": "az",
+        "pol": true,
+        "sims": 12000,
+        "tb": 34,
+        "cuct": 2.0,
+        "macro": 6,
+        "micro": 12,
+        "vw": 0.3
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 550,
+        "visited": 550,
+        "best_depth": 90,
+        "best_progress": 3,
+        "time": 34.06,
+        "nodes_per_s": 16.15
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.3
+    },
+    "42": {
+      "name": "AZ high c_puct=3.5",
+      "config": {
+        "mode": "az",
+        "pol": true,
+        "sims": 12000,
+        "tb": 34,
+        "cuct": 3.5,
+        "macro": 6,
+        "micro": 12,
+        "vw": 0.3
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 545,
+        "visited": 545,
+        "best_depth": 101,
+        "best_progress": 3,
+        "time": 34.04,
+        "nodes_per_s": 16.01
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.3
+    },
+    "43": {
+      "name": "AZ longer micro-rollout=20",
+      "config": {
+        "mode": "az",
+        "pol": true,
+        "sims": 10000,
+        "tb": 34,
+        "cuct": 2.5,
+        "macro": 6,
+        "micro": 20,
+        "vw": 0.3
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 542,
+        "visited": 542,
+        "best_depth": 129,
+        "best_progress": 3,
+        "time": 34.02,
+        "nodes_per_s": 15.93
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.3
+    },
+    "44": {
+      "name": "AZ value-weight 0.8",
+      "config": {
+        "mode": "az",
+        "pol": true,
+        "sims": 12000,
+        "tb": 34,
+        "cuct": 2.5,
+        "macro": 6,
+        "micro": 12,
+        "vw": 0.8
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 548,
+        "visited": 548,
+        "best_depth": 89,
+        "best_progress": 3,
+        "time": 34.02,
+        "nodes_per_s": 16.11
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.2
+    },
+    "45": {
+      "name": "AZ low c_puct=1.2 (exploit policy)",
+      "config": {
+        "mode": "az",
+        "pol": true,
+        "sims": 12000,
+        "tb": 34,
+        "cuct": 1.2,
+        "macro": 6,
+        "micro": 14,
+        "vw": 0.3
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 527,
+        "visited": 527,
+        "best_depth": 134,
+        "best_progress": 3,
+        "time": 34.06,
+        "nodes_per_s": 15.47
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.3
+    },
+    "46": {
+      "name": "AZ best-config big budget",
+      "config": {
+        "mode": "az",
+        "pol": true,
+        "sims": 22000,
+        "tb": 38,
+        "cuct": 2.5,
+        "macro": 6,
+        "micro": 16,
+        "vw": 0.4
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 615,
+        "visited": 615,
+        "best_depth": 130,
+        "best_progress": 3,
+        "time": 38.02,
+        "nodes_per_s": 16.17
+      },
+      "best_progress": 3,
+      "wall_time_s": 38.2
+    },
+    "47": {
+      "name": "ExIt round 1 (harvest+retrain value)",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 9000,
+        "tb": 30,
+        "cuct": 2.0,
+        "macro": 6,
+        "micro": 14,
+        "vw": 0.5
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 478,
+        "visited": 478,
+        "best_depth": 99,
+        "best_progress": 2,
+        "time": 30.06,
+        "nodes_per_s": 15.9,
+        "exit_retrain": {
+          "exit_buffer": 99,
+          "total_states": 467
+        }
+      },
+      "best_progress": 2,
+      "wall_time_s": 31.3
+    },
+    "48": {
+      "name": "ExIt round 2",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 9000,
+        "tb": 30,
+        "cuct": 2.0,
+        "macro": 6,
+        "micro": 14,
+        "vw": 0.5
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 345,
+        "visited": 345,
+        "best_depth": 165,
+        "best_progress": 3,
+        "time": 30.06,
+        "nodes_per_s": 11.48,
+        "exit_retrain": {
+          "exit_buffer": 264,
+          "total_states": 632
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 31.6
+    },
+    "49": {
+      "name": "ExIt round 3",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 9000,
+        "tb": 30,
+        "cuct": 2.2,
+        "macro": 6,
+        "micro": 14,
+        "vw": 0.5
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 317,
+        "visited": 317,
+        "best_depth": 130,
+        "best_progress": 3,
+        "time": 30.05,
+        "nodes_per_s": 10.55,
+        "exit_retrain": {
+          "exit_buffer": 394,
+          "total_states": 762
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 31.7
+    },
+    "50": {
+      "name": "ExIt round 4",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 10000,
+        "tb": 30,
+        "cuct": 2.2,
+        "macro": 6,
+        "micro": 14,
+        "vw": 0.6
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 353,
+        "visited": 353,
+        "best_depth": 168,
+        "best_progress": 3,
+        "time": 30.07,
+        "nodes_per_s": 11.74,
+        "exit_retrain": {
+          "exit_buffer": 562,
+          "total_states": 930
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 32.2
+    },
+    "51": {
+      "name": "ExIt round 5",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 10000,
+        "tb": 30,
+        "cuct": 2.0,
+        "macro": 6,
+        "micro": 16,
+        "vw": 0.6
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 349,
+        "visited": 349,
+        "best_depth": 127,
+        "best_progress": 3,
+        "time": 30.04,
+        "nodes_per_s": 11.62,
+        "exit_retrain": {
+          "exit_buffer": 689,
+          "total_states": 1057
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 32.2
+    },
+    "52": {
+      "name": "ExIt round 6",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 10000,
+        "tb": 32,
+        "cuct": 2.0,
+        "macro": 6,
+        "micro": 16,
+        "vw": 0.6
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 401,
+        "visited": 401,
+        "best_depth": 130,
+        "best_progress": 3,
+        "time": 32.06,
+        "nodes_per_s": 12.51,
+        "exit_retrain": {
+          "exit_buffer": 819,
+          "total_states": 1187
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.4
+    },
+    "53": {
+      "name": "ExIt round 7",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 11000,
+        "tb": 32,
+        "cuct": 1.8,
+        "macro": 6,
+        "micro": 16,
+        "vw": 0.7
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 395,
+        "visited": 395,
+        "best_depth": 114,
+        "best_progress": 3,
+        "time": 32.01,
+        "nodes_per_s": 12.34,
+        "exit_retrain": {
+          "exit_buffer": 933,
+          "total_states": 1301
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.5
+    },
+    "54": {
+      "name": "ExIt round 8",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 11000,
+        "tb": 32,
+        "cuct": 1.8,
+        "macro": 6,
+        "micro": 18,
+        "vw": 0.7
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 401,
+        "visited": 401,
+        "best_depth": 205,
+        "best_progress": 3,
+        "time": 32.06,
+        "nodes_per_s": 12.51,
+        "exit_retrain": {
+          "exit_buffer": 1138,
+          "total_states": 1506
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 34.9
+    },
+    "55": {
+      "name": "ExIt round 9",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 12000,
+        "tb": 34,
+        "cuct": 1.8,
+        "macro": 6,
+        "micro": 18,
+        "vw": 0.7
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 395,
+        "visited": 395,
+        "best_depth": 164,
+        "best_progress": 3,
+        "time": 34.09,
+        "nodes_per_s": 11.59,
+        "exit_retrain": {
+          "exit_buffer": 1302,
+          "total_states": 1670
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 37.1
+    },
+    "56": {
+      "name": "ExIt round 10",
+      "config": {
+        "mode": "az_exit",
+        "pol": true,
+        "sims": 12000,
+        "tb": 34,
+        "cuct": 1.6,
+        "macro": 6,
+        "micro": 18,
+        "vw": 0.8
+      },
+      "bench": {
+        "levels_completed": 5,
+        "actions_per_level": {
+          "0": 13,
+          "1": 45,
+          "2": 39,
+          "3": 43,
+          "4": 44
+        },
+        "rhae": 5.0,
+        "rhae_detail": {
+          "0": 1.0,
+          "1": 1.0,
+          "2": 1.0,
+          "3": 1.0,
+          "4": 1.0
+        }
+      },
+      "l5": {
+        "game": "ls20",
+        "level": 5,
+        "strategy": "mcts-az",
+        "status": "TIMEOUT",
+        "solution": null,
+        "solution_len": null,
+        "expansions": 399,
+        "visited": 399,
+        "best_depth": 117,
+        "best_progress": 3,
+        "time": 34.07,
+        "nodes_per_s": 11.71,
+        "exit_retrain": {
+          "exit_buffer": 1419,
+          "total_states": 1787
+        }
+      },
+      "best_progress": 3,
+      "wall_time_s": 37.2
     }
   }
 }

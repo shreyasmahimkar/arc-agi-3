@@ -216,3 +216,68 @@ and it produced the progress-2 breakthrough; it should continue for 31+.
 - Planning from Pixels / novelty atoms in Atari: https://arxiv.org/pdf/2012.09126
 - Type-Based Exploration with Multiple Search Queues — Xie, Müller, Holte, Imai, AAAI 2014: https://ojs.aaai.org/index.php/AAAI/article/download/11093/10952
 - Macro-actions for planning (survey/empirical): https://arxiv.org/pdf/1810.09145
+
+---
+
+# v17 — iterations 31–40 (throughput: multiprocessing, then imagination/MCTS)
+
+After iters 26–30 plateaued at progress 2 *throughput-bound*, these two steps
+attacked the bottleneck directly. New code: `mpsearch.py` (#1) and `mcts.py` (#2).
+
+## #1 — Multiprocess best-first (iters 31–33)
+
+`mpsearch.py`. Frontier nodes carry their **action path**, not a 120 KB
+snapshot; a fork pool of 4 workers reconstructs state from a fork-inherited
+L5-start snapshot + path replay, so the expensive engine work parallelises while
+the visited set / heuristic stay in the main process. Result: **~28 nodes/s vs
+~12 single-process (≈2.4×)**, ~700–900 expansions per run. Still progress 2 — which
+told me cores alone weren't enough and pointed at the engine itself.
+
+## Engine profiling — the finding that reframed everything
+
+Profiling `perform_action` showed it is **render-bound (~0.4–0.85 ms/call)**:
+every step re-renders the 64×64 frame. So the real engine ceilings at **~2,000
+states/sec for ANY search method** — my earlier "28k/s" reading was no-op moves.
+This is the true wall, and it's why a *learned, GPU-batchable* world model (v15)
+is the real long-term unlock.
+
+## #2 — Imagination search via forward-rollout MCTS (iters 34–40)
+
+`mcts.py`. Instead of snapshotting every node (best-first's cost), MCTS restores
+the L5-start snapshot **once per simulation** and rolls forward with `perform()`,
+exploring a whole depth-~50 trajectory per restore. UCT selection + **light
+(random) playouts** (the smart TRM policy is used only at tree nodes — putting it
+in the rollout hot loop was a throughput killer). This is the CPU realisation of
+v15's latent planner: roll forward in the *real* model because its `perform()` is
+far cheaper than its snapshot.
+
+**Result: MCTS explored 60,971 states in 30 s (~2,000/s — ~12× best-first) and
+broke the progress-2 wall, reaching progress 3 (iters 35–40) — the first move
+past 2 in 35 iterations.** The wall is now progress **3 → 4** (4 ≈ the win: both
+keys placed *and* both goals matched).
+
+## Honest status after 40 iterations
+
+**L5 still isn't solved, but the wall moved a third time:** breadth (depth 8) →
+progress 1 → progress 2 → **progress 3**, with throughput up ~12×. The remaining
+gap (3→4) is the final dual-key placement — a sparse-reward needle that uniform
+rollouts rarely thread. The fix is heavier, *learned* rollouts and removing the
+render cap:
+
+### Next steps (updated)
+
+1. **Learned world model (v15 port) for imagination** — the only way past the
+   ~2,000 states/s render cap; GPU-batchable to 1,000s of states in parallel, and
+   the natural substrate for a real 15–100-way swarm.
+2. **AlphaZero-style policy/value in the MCTS** — replace random rollouts with the
+   TRM value (no rollout), à la AlphaGo Zero, so each sim is cheaper *and* better
+   directed at progress 3→4.
+3. **Expert iteration on the progress-3 traces** — feed the harvested progress-3
+   paths back into ForgeNet/TRM so the next search starts knowing the third key.
+4. **Swarm** — N MCTS trees with different seeds/landmarks (portfolio + landmark
+   fan-out); first to progress 4 wins.
+
+### Sources (iterations 34–40)
+
+- MCTS survey (UCT, heavy/light playouts) — Browne et al. 2012: https://link.springer.com/article/10.1007/s10462-022-10228-y
+- AmEx-MCTS / deterministic single-agent MCTS context: https://www.emergentmind.com/topics/monte-carlo-tree-search-mcts
