@@ -24,13 +24,18 @@ cd "$DIR" || exit 1
 source "$VENV" 2>/dev/null
 {
   echo "===== ExIt cycle START $(date '+%F %T') ====="
-  echo "--- step 1: solve more (cap 180s/level, ~9 min budget, shuffled across all games) ---"
-  timeout 540 python solve_all.py --bfs-timeout 180 --shuffle
+  # BREADTH focus: shorter cap = more games' first level attempted per cycle.
+  # --shuffle front-loads fresh (no-solved-level) games, so compute spreads to
+  # new games (where the score lives) rather than going deep on solved ones.
+  echo "--- step 1: solve for BREADTH (cap 120s/level, ~9 min, fresh games first) ---"
+  timeout 540 python solve_all.py --bfs-timeout 120 --shuffle
   echo "--- step 2: harvest transitions ---"
   python harvest_wm.py
   echo "--- step 3: retrain world model (20 epochs, ~5 min budget) ---"
   timeout 300 python train_wm_v19.py --epochs 20
-  echo "--- step 4: WM-imagination attempts on the frontier (crack what BFS can't) ---"
-  timeout 240 python wm_attempt.py --games 8 --budget 200
+  # DEPRIORITISED (breadth > one hard level): a light WM-attempt only, so it
+  # never steals budget from breadth solving. Scale back up later if desired.
+  echo "--- step 4: light WM-imagination attempt (deprioritised) ---"
+  timeout 90 python wm_attempt.py --games 3 --budget 100
   echo "===== ExIt cycle DONE  $(date '+%F %T') ====="
 } >> "$LOG" 2>&1

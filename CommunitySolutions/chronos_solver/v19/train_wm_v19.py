@@ -14,7 +14,7 @@ dynamics of games it never trained on?). Each epoch's row goes to WM_LOG.md.
 Output: wm_weights.pt
 """
 from __future__ import annotations
-import os, sys, time, argparse
+import os, sys, time, argparse, hashlib
 from datetime import datetime
 import numpy as np
 import torch
@@ -24,9 +24,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from forge_agent import featurize, ResBlock          # reuse 21-ch featurizer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# held-out games (never trained on) — the transfer test for the world model.
-# Any games NOT in this set are training games, so this scales to 200+ games.
+# Held-out games (never trained on) — the WM transfer test. Scales to any game
+# set: the 5 official held-out PLUS a stable ~10% hash bucket of every other game.
 HELDOUT_GAMES = {"cn04", "ka59", "sk48", "tu93", "wa30"}
+
+
+def is_heldout(game: str) -> bool:
+    if game in HELDOUT_GAMES:
+        return True
+    return int(hashlib.md5(game.encode()).hexdigest(), 16) % 10 == 0
 
 
 class WorldModel(nn.Module):
@@ -95,7 +101,7 @@ def main():
     F_, NF, A, R, G, games = load()
     if games is None:
         games = [str(i) for i in range(int(G.max()) + 1)]
-    heldout_idx = {i for i, g in enumerate(games) if g in HELDOUT_GAMES}
+    heldout_idx = {i for i, g in enumerate(games) if is_heldout(g)}
     is_ho = np.isin(G, list(heldout_idx)) if heldout_idx else np.zeros(len(G), bool)
     tr = ~is_ho
     print(f"[wm] device={device} games={len(games)} train={tr.sum()} held-out={is_ho.sum()} "
