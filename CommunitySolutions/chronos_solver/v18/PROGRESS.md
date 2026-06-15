@@ -153,26 +153,25 @@ novelty.
 
 ## Next levers (ordered) — push held-out 2/5 → 3/5+ and deepen
 
-iter2 has a GENUINE solver that solves ≥3 games from scratch. To solve harder /
-held-out / click games, make the search smarter (still no stored answers):
+iter3 reached held-out 2/5 (cn04, tu93). DONE bar = 3/5. The unsolved held-out
+games (ka59, sk48, wa30) searched ~500 sims without cracking L0; vc33/ft09 starve
+at ≤50 sims. To push past 2/5 (still no stored answers):
 
-1. **Novelty-guided rollouts (BFWS)** — instead of uniform-random playouts, bias
-   each rollout step toward actions that produce a never-seen frame (frame-delta
-   novelty). Directed exploration is the difference between cracking cd82/ar25
-   and burning budget. Highest leverage, pure search.
-2. **GAME_OVER handling + click puzzles** — rollouts that hit GAME_OVER starve
-   the frontier (vc33, ft09). On GAME_OVER, RESET and continue the rollout; for
-   click games, make visible-object click targets first-class rollout actions.
-3. **Observable frame-delta progress reward** — shape rollout selection by "how
-   much new structure appeared" (honest, frame-only) so search heads toward
-   interactions, not just wandering. Replaces v17's `__dict__` progress.
-4. **Learned forward model for IMAGINATION search** — the only way past the
-   reset+replay action cost: learn `(frame,action)->frame` from observed
-   transitions (offline on TRAIN), then run the rollout search inside the model
-   (free), executing only the verified plan. This is also what makes transfer
-   to held-out cheap. Big lift, biggest payoff.
-5. **Hook the official harness** (`ARC-AGI-3-Agents`) and submit to the live
-   leaderboard once held-out solves appear.
+1. ~~Novelty-guided rollouts (BFWS)~~ — DONE iter3 (Go-Explore archive). Worked.
+2. **Click / ACTION6 / ACTION7 as first-class rollout actions** — the starving
+   games (vc33, ft09; maybe ka59/sk48/wa30) are likely click/non-movement puzzles;
+   movement novelty can't progress them. Probe `available_actions` for 6/7 and
+   make visible-object click targets (and ACTION7) real rollout candidates.
+3. **Observable frame-delta progress reward** — bias frontier selection by "how
+   much NEW structure appeared vs level start" (honest, frame-only), so search
+   heads toward interactions. The honest replacement for v17's `__dict__` progress.
+4. **More budget / multi-seed restarts** for the ~500-sim near-misses (ka59, sk48,
+   wa30) — cheap to try; a second seed or 2× budget may tip them over.
+5. **Learned forward model for IMAGINATION search** — learn `(frame,action)->
+   frame` from observed transitions (offline, TRAIN only) and search inside the
+   model (free), removing the reset+replay action cost. Big lift, biggest payoff.
+6. **Hook the official harness** (`ARC-AGI-3-Agents`) and submit to the live
+   leaderboard.
 
 ## Hard rules (never break — this is what v17 got wrong)
 
