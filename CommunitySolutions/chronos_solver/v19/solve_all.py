@@ -27,18 +27,37 @@ logger = logging.getLogger("solve_all")
 
 from combined_agent import BFSSolver, HW, SOLUTIONS_DIR, _sol_path  # noqa: E402
 
-ALL_GAMES = ["ar25", "bp35", "cd82", "cn04", "dc22", "ft09", "g50t", "ka59",
-             "lf52", "lp85", "ls20", "m0r0", "r11l", "re86", "s5i5", "sb26",
-             "sc25", "sk48", "sp80", "su15", "tn36", "tr87", "tu93", "vc33", "wa30"]
+# Roots scanned for game engine sources. Drop the 200-game testbed under any of
+# these (or set V19_EXTRA_GAMES_DIR) and the whole pipeline picks them up — no
+# hardcoded game list.
+GAME_ROOTS = [
+    os.path.join(REPO, 'arc-prize-2026-arc-agi-3', 'environment_files'),
+    os.path.join(REPO, 'environment_files'),
+]
+if os.environ.get('V19_EXTRA_GAMES_DIR'):
+    GAME_ROOTS.insert(0, os.environ['V19_EXTRA_GAMES_DIR'])
+
+
+def discover_games():
+    """Every game whose <id>/**/<id>.py engine source is reachable, sorted."""
+    found = {}
+    for base in GAME_ROOTS:
+        if not os.path.isdir(base):
+            continue
+        for d in sorted(os.listdir(base)):
+            if d in found:
+                continue
+            m = glob.glob(os.path.join(base, d, "**", f"{d}.py"), recursive=True)
+            if m:
+                found[d] = m[0]
+    return found
 
 
 def find_game_source(game_id):
-    for base in (os.path.join(REPO, 'arc-prize-2026-arc-agi-3', 'environment_files'),
-                 os.path.join(REPO, 'environment_files')):
-        m = glob.glob(os.path.join(base, game_id, "**", f"{game_id}.py"), recursive=True)
-        if m:
-            return m[0]
-    return None
+    return discover_games().get(game_id)
+
+
+ALL_GAMES = sorted(discover_games().keys())
 
 
 def solve_game(game, bfs_timeout, max_levels, workers, max_states):
@@ -87,8 +106,28 @@ def main():
     ap.add_argument("--max-levels", type=int, default=12)
     ap.add_argument("--workers", type=int, default=HW["workers"])
     ap.add_argument("--max-states", type=int, default=5_000_000)
+    ap.add_argument("--shuffle", action="store_true",
+                    help="randomise game order (so a time-boxed cycle rotates "
+                         "across all games instead of always retrying the first few)")
     args = ap.parse_args()
     games = args.games.split(",")
+    if args.shuffle:
+        import random as _r
+        # prioritise games with NO solved levels yet, then shuffle, so every
+        # cycle makes progress on fresh games (frontier checkpoints resume the
+        # in-progress ones across cycles).
+        import glob as _g, json as _j
+        solved = set()
+        for f in _g.glob(os.path.join(SOLUTIONS_DIR, "*.json")):
+            try:
+                if _j.load(open(f)):
+                    solved.add(os.path.basename(f)[:-5])
+            except Exception:
+                pass
+        fresh = [x for x in games if x not in solved]
+        done = [x for x in games if x in solved]
+        _r.shuffle(fresh); _r.shuffle(done)
+        games = fresh + done
     logger.info(f"[campaign] {len(games)} games, cap={args.bfs_timeout}s/level, workers={args.workers}")
     t0 = time.time(); summary = {}
     for g in games:

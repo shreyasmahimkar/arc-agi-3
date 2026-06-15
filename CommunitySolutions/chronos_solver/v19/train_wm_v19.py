@@ -24,10 +24,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from forge_agent import featurize, ResBlock          # reuse 21-ch featurizer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# held-out games (never trained on) — the transfer test for the world model
+# held-out games (never trained on) — the transfer test for the world model.
+# Any games NOT in this set are training games, so this scales to 200+ games.
 HELDOUT_GAMES = {"cn04", "ka59", "sk48", "tu93", "wa30"}
-GAME_ORDER = ['ar25', 'cd82', 'cn04', 'dc22', 'ft09', 'g50t', 'ka59', 'lp85',
-              'ls20', 'm0r0', 'r11l', 's5i5', 'sk48', 'sp80', 'tu93', 'vc33']
 
 
 class WorldModel(nn.Module):
@@ -61,10 +60,11 @@ class WorldModel(nn.Module):
 
 
 def load():
-    d = np.load(os.path.join(HERE, "wm_data.npz"))
+    d = np.load(os.path.join(HERE, "wm_data.npz"), allow_pickle=True)
+    games = list(d["games"]) if "games" in d else None
     return (d["frames"].astype(np.int64), d["next_frames"].astype(np.int64),
             d["actions"].astype(np.int64), d["rewards"].astype(np.float32),
-            d["game_ids"].astype(np.int64))
+            d["game_ids"].astype(np.int64), games)
 
 
 def evaluate(net, frames, nframes, actions, device, bsz=128):
@@ -92,12 +92,14 @@ def main():
     args = ap.parse_args()
     device = torch.device("mps" if torch.backends.mps.is_available()
                           else ("cuda" if torch.cuda.is_available() else "cpu"))
-    F_, NF, A, R, G = load()
-    heldout_idx = {GAME_ORDER.index(g) for g in HELDOUT_GAMES if g in GAME_ORDER}
-    is_ho = np.isin(G, list(heldout_idx))
+    F_, NF, A, R, G, games = load()
+    if games is None:
+        games = [str(i) for i in range(int(G.max()) + 1)]
+    heldout_idx = {i for i, g in enumerate(games) if g in HELDOUT_GAMES}
+    is_ho = np.isin(G, list(heldout_idx)) if heldout_idx else np.zeros(len(G), bool)
     tr = ~is_ho
-    print(f"[wm] device={device} train={tr.sum()} held-out={is_ho.sum()} "
-          f"(games {sorted(GAME_ORDER[i] for i in heldout_idx)})")
+    print(f"[wm] device={device} games={len(games)} train={tr.sum()} held-out={is_ho.sum()} "
+          f"(HO games {sorted(games[i] for i in heldout_idx)})")
     Ftr, NFtr, Atr, Rtr = F_[tr], NF[tr], A[tr], R[tr]
     Fho, NFho, Aho = F_[is_ho], NF[is_ho], A[is_ho]
 

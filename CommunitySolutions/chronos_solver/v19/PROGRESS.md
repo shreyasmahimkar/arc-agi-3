@@ -130,6 +130,31 @@ self-contained (no blackbox_env dep) → Kaggle-safe.
 lightweight stand-in); use forge as fallback ALSO on BFS *timeouts* (not just
 no-source), not yet wired.
 
+## iter 3 — full ExIt flywheel + 274 games + WM-imagination planner  [2026-06-15]
+
+Brought in **252 community games** (github.com/theredbluepill/arc-interactive) →
+**274 games** discoverable (official 25 + community 249). Community games are
+`.gitignore`d (re-clonable); the official 25 stay tracked. Pipeline is now
+game-count-agnostic (auto-discovery in `solve_all.py`; names carried through
+harvest→train; `--shuffle` so time-boxed cycles rotate across all games).
+
+**The ExIt flywheel (`exit_cycle.sh`, looped every ~15 min):**
+1. `solve_all.py --shuffle` — BFS ladder solves levels → corpus (`CAMPAIGN_LOG.md`)
+2. `harvest_wm.py` — replay solutions → transitions (`wm_data.npz`)
+3. `train_wm_v19.py` — retrain world model, held-out generalisation (`WM_LOG.md`)
+4. `wm_attempt.py` — **WM-imagination planner** attempts the frontier levels BFS
+   couldn't, verified on the real engine (`PLANNER_LOG.md`)
+
+**WM-imagination planner (`wm_planner.py`):** MPC over the learned world model —
+beam-search short action sequences IN IMAGINATION (free), score by predicted
+reward (optimistic) + novelty, execute the best on the REAL engine, replan. Self-
+test passes (loads weights, plans valid actions, verified). Doesn't crack hard
+levels yet (WM chg-acc ~0.20) but improves every cycle as the 274-game corpus
+grows — that is the flywheel: solve → learn → crack more → solve more.
+
+SDLC: each new module has a `--selftest`/smoke path; logs are improvement-tracked
+(CAMPAIGN/WM/PLANNER); the long run is time-boxed and resumable.
+
 ## Levers (ordered by RHAE impact)
 
 1. **Offline-pretrain ChangeNet on the public games** — generate `(frame,action)

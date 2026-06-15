@@ -103,7 +103,8 @@ def main():
     F = np.concatenate(F); NF = np.concatenate(NF); A = np.concatenate(A)
     R = np.concatenate(R); G = np.concatenate(G)
     out_p = os.path.join(HERE, "wm_data.npz")
-    np.savez_compressed(out_p, frames=F, next_frames=NF, actions=A, rewards=R, game_ids=G)
+    np.savez_compressed(out_p, frames=F, next_frames=NF, actions=A, rewards=R,
+                        game_ids=G, games=np.array(games, dtype=object))
     print(f"[harvest_wm] {len(A)} transitions, {int(R.sum())} reward-steps, "
           f"{len(games)} games -> {os.path.basename(out_p)} ({os.path.getsize(out_p)//1024} KB)")
 
