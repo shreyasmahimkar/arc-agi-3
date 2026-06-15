@@ -161,3 +161,16 @@ Held-out = games never trained on. **chg-acc** = next-frame accuracy on CHANGED 
 | 5 | 0.8309 | 0.818 | 0.135 |  | 41 |
 
 <!-- done@18:12:32 best HO chg-acc=0.273 mult=4 amp=True -->
+| 1 | 1.0484 | 0.677 | 0.254 | * | 8 |
+| 5 | 0.8467 | 0.770 | 0.108 |  | 36 |
+
+<!-- done@18:20:51 best HO chg-acc=0.254 mult=4 amp=True -->
+| 1 | 1.0227 | 0.678 | 0.218 |  | 8 |
+| 5 | 0.7950 | 0.836 | 0.093 |  | 35 |
+
+<!-- done@18:29:54 best HO chg-acc=0.254 mult=4 amp=True -->
+| 1 | 0.9825 | 0.671 | 0.229 | * | 8 |
+| 5 | 0.7952 | 0.813 | 0.119 |  | 36 |
+
+<!-- done@18:35:26 best HO chg-acc=0.229 mult=4 amp=True -->
+| 1 | 0.9744 | 0.689 | 0.210 |  | 9 |
