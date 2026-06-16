@@ -1,0 +1,20 @@
+#!/bin/bash
+# v19 BENCHMARK pre-commit hook — blocks a commit if the genuine (no-cache) solve
+# depth for the tracked games (ar25, ls20) regresses below v19/benchmark.json.
+# Install: ln -sf ../../CommunitySolutions/chronos_solver/v19/hooks/pre-commit .git/hooks/pre-commit
+# Bypass once (emergencies only): SKIP_LS20_GUARDRAIL=1 git commit   (or git commit -n)
+set -e
+if [ "${SKIP_LS20_GUARDRAIL:-0}" = "1" ]; then
+  echo "[benchmark] SKIPPED via SKIP_LS20_GUARDRAIL=1"; exit 0
+fi
+DIR="$(git rev-parse --show-toplevel)/CommunitySolutions/chronos_solver/v19"
+PY="$(git rev-parse --show-toplevel)/.venv312/bin/python"
+[ -x "$PY" ] || PY=python3
+echo "[benchmark] checking ar25 + ls20 genuine solve depth vs baseline (a few minutes)…"
+if "$PY" "$DIR/benchmark.py"; then
+  echo "[benchmark] held — commit allowed."; exit 0
+else
+  echo "[benchmark] REGRESSED — commit blocked. Fix it, or bypass with"
+  echo "            SKIP_LS20_GUARDRAIL=1 git commit  (discouraged)."
+  exit 1
+fi

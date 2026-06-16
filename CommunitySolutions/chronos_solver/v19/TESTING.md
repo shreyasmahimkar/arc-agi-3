@@ -1,4 +1,36 @@
-# v19 guardrail — genuine ls20 solve gate
+# v19 guardrails — genuine solve gates
+
+Two layers, both run the **real agent** with stored answers OFF
+(`V19_STORE_SOLUTIONS=0` + `V19_CACHE_FALLBACK=0`), so a pass means the agent
+*searched and solved* each level itself — never a cached answer.
+
+| gate | when | scope | script |
+|---|---|---|---|
+| **benchmark** | **pre-commit** | ar25 + ls20 genuine solve depth must not regress | `benchmark.py` |
+| ls20 guardrail | pre-push | ls20 reaches L4 (clears L0-L3) | `test_ls20.py` |
+
+## Benchmark gate (pre-commit) — "the benchmark shall not move"
+
+`benchmark.json` records the deepest level each tracked game solves genuinely
+(measured from current behaviour, TDD-style). Every commit must still meet it.
+
+```bash
+cd CommunitySolutions/chronos_solver/v19
+../../../.venv312/bin/python benchmark.py            # CHECK vs baseline (exit 1 on regression)
+../../../.venv312/bin/python benchmark.py --update   # RE-MEASURE + record (after a genuine improvement)
+../../../.venv312/bin/python benchmark.py --game ar25
+```
+
+Current baselines (`benchmark.json`): **ar25 = 2** (clears L0,L1), **ls20 = 4**
+(clears L0-L3 / reaches L4). The check early-stops once a game hits its floor, so a
+healthy run is ~4-5 min total. A game that goes *deeper* than its floor prints a note
+to run `--update` and lock the new floor in. Installed as `.git/hooks/pre-commit`
+(symlink to `hooks/pre-commit`); blocks the commit on regression. Bypass:
+`SKIP_LS20_GUARDRAIL=1 git commit` or `git commit -n` (discouraged).
+
+---
+
+## ls20 guardrail (pre-push)
 
 **Rule:** every code change must keep the v19 agent able to **genuinely** (no cached
 answers) solve ls20 through its multi-level transitions, using the full v13/v17
