@@ -292,3 +292,7 @@ arc-prize-2026-arc-agi-3/environment_files/zm04/
 arc-prize-2026-arc-agi-3/environment_files/zq01/
 arc-prize-2026-arc-agi-3/environment_files/zq02/
 arc-prize-2026-arc-agi-3/environment_files/zq03/
+
+# archived/old-version wheel bundles (never commit; re-downloadable)
+CommunitySolutions/chronos_solver/**/wheels/
+*.whl

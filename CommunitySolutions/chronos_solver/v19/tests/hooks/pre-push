@@ -1,7 +1,7 @@
 #!/bin/bash
 # v19 GUARDRAIL pre-push hook — blocks a push unless the v19 agent can GENUINELY
 # (no cache) solve ls20 through the multi-level transitions (reach L4 = clear L0-L3).
-# Install: ln -sf ../../CommunitySolutions/chronos_solver/v19/hooks/pre-push .git/hooks/pre-push
+# Install: ln -sf ../../CommunitySolutions/chronos_solver/v19/tests/hooks/pre-push .git/hooks/pre-push
 # Bypass once (emergencies only): SKIP_LS20_GUARDRAIL=1 git push
 set -e
 if [ "${SKIP_LS20_GUARDRAIL:-0}" = "1" ]; then
@@ -11,7 +11,7 @@ DIR="$(git rev-parse --show-toplevel)/CommunitySolutions/chronos_solver/v19"
 PY="$(git rev-parse --show-toplevel)/.venv312/bin/python"
 [ -x "$PY" ] || PY=python3
 echo "[guardrail] running ls20 genuine-solve gate (this takes a few minutes)…"
-if "$PY" "$DIR/test_ls20.py" --target 4 --bfs-timeout 150; then
+if "$PY" "$DIR/tests/test_ls20.py" --target 4 --bfs-timeout 150; then
   echo "[guardrail] PASS — push allowed."; exit 0
 else
   echo "[guardrail] FAIL — ls20 multi-level genuine solve regressed. Push blocked."

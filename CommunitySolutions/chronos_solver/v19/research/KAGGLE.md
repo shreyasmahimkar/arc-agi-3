@@ -27,11 +27,12 @@ Private Kaggle dataset (e.g. `v19-forge`), top-level files:
 | `solutions/` | cached solutions = **timeout backstop only** |
 
 ```bash
-# from CommunitySolutions/chronos_solver/v19/
+# from CommunitySolutions/chronos_solver/v19/  (code now lives in src/)
 mkdir -p /tmp/v19-forge
-cp combined_agent.py forge_agent.py pretrained_weights.pt /tmp/v19-forge/
-cp -r solutions /tmp/v19-forge/
+cp src/combined_agent.py src/forge_agent.py src/pretrained_weights.pt /tmp/v19-forge/
+cp -r src/solutions /tmp/v19-forge/
 # upload /tmp/v19-forge as a private Kaggle dataset
+# (the notebook auto-discovers combined_agent.py by glob, so the dataset stays flat)
 ```
 
 `solutions/` is optional — without it the agent is BFS-only (still the 0.22 path,

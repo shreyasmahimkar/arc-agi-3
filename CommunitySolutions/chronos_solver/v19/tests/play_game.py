@@ -26,10 +26,10 @@ import numpy as np
 from matplotlib.colors import ListedColormap
 import matplotlib.pyplot as plt
 
-repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(repo_root, "arc_solver"))
 sys.path.insert(0, os.path.join(repo_root, "arc-prize-2026-arc-agi-3", "ARC-AGI-3-Agents"))
-sys.path.insert(0, os.path.dirname(__file__))          # so `import combined_agent` wins
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))   # the v19 code package
 
 import arc_agi
 from arcengine import GameAction, GameState, ActionInput

@@ -1900,7 +1900,7 @@ def find_game_source_and_class(game_id, arc_env=None):
                     break
     if not src:
         import re
-        _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        _root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
         for pattern in [
             f"/tmp/*/{gid}/*/{gid}.py",
             f"/kaggle/*/{gid}*/{gid}.py",

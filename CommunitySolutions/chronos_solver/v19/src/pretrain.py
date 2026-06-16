@@ -27,7 +27,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "v18")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 from forge_agent import (ForgeAgent, ChangeNet, featurize, auto_bsz,   # noqa: E402
                          make_grad_scaler, amp_autocast,
                          N_SIMPLE, CLICK_BASE, GRID)

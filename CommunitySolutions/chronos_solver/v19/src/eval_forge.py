@@ -12,7 +12,7 @@ Usage:
 from __future__ import annotations
 import os, sys, json, argparse, time
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "v18")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 from blackbox_env import BlackBoxEnv          # noqa: E402
 from forge_agent import ForgeAgent            # noqa: E402
 

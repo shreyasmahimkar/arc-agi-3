@@ -14,7 +14,7 @@ Genuine solving: BFS searches the real engine and the solution is replay-verifie
                   q = quit | ? = help
 """
 import os, sys, time
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 import numpy as np
 import combined_agent as ca
 from arcengine import ActionInput, GameAction

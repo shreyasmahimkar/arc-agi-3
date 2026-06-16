@@ -13,7 +13,7 @@ answers. Output: wm_data.npz {grids,(N+1,64,64) actions,(N,3) rewards,(N,) game_
 from __future__ import annotations
 import os, sys, json, glob, random
 import numpy as np
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "v17")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 import engine as E   # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))

@@ -20,7 +20,7 @@ import os, sys, json, argparse
 import numpy as np
 import torch
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "v17")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 from train_wm_v19 import WorldModel                      # the trained model class
 import engine as E                                       # real engine (verifier)
 

@@ -20,9 +20,9 @@ os.environ["V19_STORE_SOLUTIONS"] = "0"      # never write a cache
 os.environ["V19_CACHE_FALLBACK"] = "0"       # never read a cache — genuine only
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-repo_root = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+repo_root = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 sys.path.insert(0, os.path.join(repo_root, "arc-prize-2026-arc-agi-3", "ARC-AGI-3-Agents"))
-sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "src"))   # the v19 code package
 
 import logging
 logging.basicConfig(level=logging.WARNING)   # quiet; we print our own progress

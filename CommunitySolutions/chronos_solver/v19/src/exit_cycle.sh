@@ -12,7 +12,7 @@ set -u
 # (brew coreutils, /opt/homebrew/bin) is "command not found" and every solve/
 # train/attempt step silently skips. Put the real PATH back.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
-DIR="/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v19"
+DIR="/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v19/src"
 VENV="/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/.venv312/bin/activate"
 LOCK="/tmp/v19_exit_cycle.lock"
 LOG="$DIR/exit_cycle.log"
