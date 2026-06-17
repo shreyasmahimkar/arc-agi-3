@@ -321,8 +321,17 @@ def _bfs_expand_node(args):
 #   reuse experience on a familiar problem). Live BFS always runs FIRST — the cache
 #   is never the primary answer, only the timeout safety net. Enable on the Kaggle
 #   submission with V19_CACHE_FALLBACK=1.
+# CACHE_FIRST (default OFF): MEMORY-FIRST mode. Before spending any time on live
+#   search, replay a learned solution for the exact level if one exists in the cache
+#   — the human analogy of recognising a problem you've solved before and applying
+#   the remembered solution first. The cached plan is REPLAY-VERIFIED on a clean
+#   engine before commit; if it is missing OR stale (fails verify, e.g. game-version
+#   drift), the agent falls through to the full v13/v17 live BFS ladder for that
+#   level. So memory leads, genuine search is the fallback. Enable with
+#   V19_CACHE_FIRST=1. (When off, behaviour is identical to before — BFS-first.)
 STORE_SOLUTIONS = os.environ.get('V19_STORE_SOLUTIONS', '1') == '1'
 CACHE_FALLBACK = os.environ.get('V19_CACHE_FALLBACK', '0') == '1'
+CACHE_FIRST = os.environ.get('V19_CACHE_FIRST', '0') == '1'
 SOLUTIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'solutions')
 
 def _sol_path(game_id):
@@ -2073,10 +2082,36 @@ class MyAgent(Agent):
             logger.warning(f"cache fallback load failed: {e}")
         return None
     def _try_bfs_solve(s, level_idx):
-        """Solve the current level. LIVE BFS first (genuine); on timeout, fall back
-        to a cached solution only if V19_CACHE_FALLBACK is enabled."""
+        """Solve the current level.
+
+        MEMORY-FIRST (V19_CACHE_FIRST=1): replay a learned solution for this exact
+        level if the cache has one and it still verifies on a clean engine, BEFORE
+        any live search. Missing/stale memory falls through to live BFS below.
+
+        Otherwise (default): LIVE BFS first (genuine); on timeout, fall back to a
+        cached solution only if V19_CACHE_FALLBACK is enabled."""
         if s._bfs is None:
             return None
+        # ===== MEMORY-FIRST SWEEP =====
+        if CACHE_FIRST and level_idx not in s._bfs.solutions:
+            cached = s._load_cached_level(level_idx)
+            if cached:
+                # Verify the remembered plan still wins (chained on L0..L{idx-1},
+                # which are already committed to s._bfs.solutions as we advance).
+                # A pass means it is safe to apply with zero search; a fail means
+                # the memory is stale -> fall through to the live ladder below.
+                if s._bfs.verify_solution(level_idx, cached):
+                    logger.info(f"MEMORY HIT: level {level_idx} solved from cache "
+                                f"({len(cached)} actions) — no live search needed")
+                    s._bfs.solutions[level_idx] = cached
+                    s._bfs_solution = cached
+                    s._bfs_step = 0
+                    return cached
+                logger.info(f"MEMORY STALE: cached level {level_idx} failed "
+                            f"replay-verify -> falling through to live BFS")
+            else:
+                logger.info(f"MEMORY MISS: no cached solution for level {level_idx} "
+                            f"-> live BFS")
         prev_sol = s._bfs.solutions.get(level_idx - 1) if level_idx > 0 else None
         # strategy='auto' = the full v13/v17 ladder (bfs -> waypoint -> A* -> IW ->
         # EHC -> greedy), same as the offline corpus solver. Plain 'bfs' times out on
