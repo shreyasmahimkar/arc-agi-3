@@ -1,0 +1,47 @@
+# Chronos v21 — dependencies
+# Two profiles: (A) SUBMISSION path must be fully offline (no network libs used at
+# runtime); (B) CADENCE box may additionally use network/LLM libs for the optional
+# offline world-model generator (R6.6), which never ships in the notebook.
+
+# ---- Core: ARC-AGI-3 engine + harness (required, offline) --------------------
+arc-agi==0.9.8
+arcengine==0.9.3
+
+# ---- Numeric / search --------------------------------------------------------
+numpy>=1.26,<3
+scipy>=1.11            # connected-component object segmentation in graph_explore
+
+# ---- Model (Forge / ChangeNet); CUDA build on Kaggle T4/P100 -----------------
+torch>=2.2             # on Kaggle use the preinstalled CUDA wheel; CPU ok for dev
+cloudpickle>=3.1       # engine snapshot forking
+
+# ---- Runtime on-the-fly code-writer (local LLM, OFFLINE on Kaggle GPU) --------
+# The runtime writer loads a LOCAL Qwen2.5-Coder (default 7B @4bit ~6GB, fits a
+# 16GB T4). Bundle the weights as a Kaggle DATASET and set HF_HUB_OFFLINE=1 —
+# the model must be present locally; no download at scored runtime.
+#   default model: Qwen/Qwen2.5-Coder-7B-Instruct  (fallback: -1.5B-Instruct)
+#   cadence box may use Qwen/Qwen3-Coder-Next instead.
+transformers>=4.44
+accelerate>=0.33
+bitsandbytes>=0.43     # 4-bit quant; CUDA only (skipped on CPU dev -> full precision)
+sentencepiece>=0.2
+# If transformers/model are absent, llm_backend falls back to MockBackend and the
+# rest of the agent (blitz/BFS/graph/Forge) still runs — the LLM is additive.
+
+# ---- Env / RL harness (used by ARC-AGI-3-Agents) -----------------------------
+gymnasium==1.3.0
+Farama-Notifications==0.0.6
+
+# ---- Runner / logging utilities ----------------------------------------------
+tqdm>=4.66
+
+# ============================================================================
+# CADENCE-BOX ONLY (optional; NOT in the Kaggle submission). Uncomment to enable
+# the offline world-model generator (--world-model). Requires internet on the
+# cadence machine. Never import these in the submission path.
+# ----------------------------------------------------------------------------
+# langchain-core==1.3.2
+# langchain-openai==1.2.1
+# langgraph==1.1.10
+# httpx==0.28.1
+# openai>=1.40

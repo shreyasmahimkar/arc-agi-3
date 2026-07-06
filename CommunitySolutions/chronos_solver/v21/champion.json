@@ -1,0 +1,18 @@
+{
+ "version": 0,
+ "blitz_K": 200,
+ "action_order": [
+  6,
+  1,
+  2,
+  3,
+  4,
+  5,
+  7
+ ],
+ "abandon_deaths": 2,
+ "bfs_prefer_optimal": true,
+ "heuristics": [],
+ "rhae": {},
+ "notes": "seed champion (v0): blitz probe first, ACTION6-first order, optimal BFS. Evolved by evolve.py."
+}
