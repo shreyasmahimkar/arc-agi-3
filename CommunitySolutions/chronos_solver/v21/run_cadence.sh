@@ -8,14 +8,15 @@ cd "$HERE"
 # --- config (edit these if your paths/model differ) ---------------------------
 PY="${PY:-$HERE/../../../.venv312/bin/python}"
 export V21_LLM_BACKEND="${V21_LLM_BACKEND:-ollama}"
-export V21_OLLAMA_MODEL="${V21_OLLAMA_MODEL:-qwen2.5-coder:7b}"
-BUDGET="${BUDGET:-600}"                       # seconds/level; raise for deeper passes
+export V21_OLLAMA_MODEL="${V21_OLLAMA_MODEL:-qwen2.5-coder:3b}"  # 3b coexists with heavy BFS (7b OOM'd -> Ollama 500)
+BUDGET="${BUDGET:-1200}"                      # seconds/level; raised 600->1200 for deeper walls (ls20 L4 timed out at 600; L5-L6/ft09 L2-L5 need more BFS depth)
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # so `ollama` is found under launchd
 
 # --- wall-cracking features (defaults ON; override in the environment) ---------
 export V21_BLITZ="${V21_BLITZ:-1}"            # Stage-0 cheap-win probe (blitz.py)
 export V21_EVOLVE_PROBE="${V21_EVOLVE_PROBE:-1}"   # let evolve actually PROMOTE (live rollout)
 export V21_RUNTIME_CODER="${V21_RUNTIME_CODER:-1}" # on-the-fly WM writer ON (Qwen writes code for BFS/blitz-blocked walls)
+export V21_BRAIN_PERCEPTION="${V21_BRAIN_PERCEPTION:-1}" # B1: perception connected-component click targets (one per blob) for vc33 same-colour walls
 
 mkdir -p logs
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
