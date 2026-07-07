@@ -176,6 +176,19 @@ mechanisms (tracked as BACKLOG R1–R3):
 Speed–Depth note (RHAE is quadratic in action count): keep the shortest-plan gate
 strict; long repeat-heavy wins should be revisited to shorten, not left at RHAE<1.
 
+A second RESEARCH-branch scan (2026-07-07, RESEARCH-2) added one new mechanism
+(BACKLOG R6), distinct from R1–R5:
+
+- **Orchestrator + compressed-summary subagents** (Symbolica *Arcgentica*,
+  open-source, 36.08% / 113-of-182 levels on the 25-game public set, solves all
+  3 public envs). The transferable idea is context control: subagents return
+  **compressed textual summaries** rather than raw transcripts, so the model's
+  context stays bounded as exploration deepens. For us this is a single-coder
+  optimisation, not a multi-agent rewrite: compress recorded transitions into a
+  fixed-size structured digest (scene deltas + tried-action→outcome table) before
+  the `runtime_coder`/planner prompt. This directly targets the 160000Z-style
+  stall where the coder step times out/OOMs on a deep wall's growing context.
+
 ---
 
 ## 6. Key references
@@ -202,3 +215,7 @@ strict; long repeat-heavy wins should be revisited to shorten, not left at RHAE<
 - LeCun / H-JEPA and follow-ups (2026): hierarchical latent predictive world
   models & planning in representation space — the neural-latent B8 slot.
 - *Perception bottleneck in abstract-reasoning benchmarks*, arXiv:2512.21329.
+- Symbolica AI (2026). *Arcgentica: REPL/orchestrator agents for ARC-AGI-3.*
+  Open-source `symbolica-ai/arcgentica` + `symbolica-ai/ARC-AGI-3-Agents`; blog
+  https://www.symbolica.ai/blog/arc-agi-3 . (Orchestrator + compressed-summary
+  subagents for bounded context; 36.08% on the 25-game public set — R6.)

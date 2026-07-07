@@ -111,7 +111,7 @@ B8. **(Optional, far) Neural latent world model.** H-JEPA/Dreamer-style latent p
     in 4h increments — do NOT start until B2–B7 are solid and a training route exists.
 
 # =====================================================================
-# RESEARCH FEED — integrated 2026-07-07 (RESEARCH-branch cycle)
+# RESEARCH FEED — R1–R5 integrated 2026-07-07; R6 added 2026-07-07 (RESEARCH-2)
 # Latest ARC-AGI-3 literature scanned (arXiv / ARC Prize / Kaggle). Each item is
 # ADDITIVE, env-gated when shipped, and slots into the proven cascade + brain.
 # These VALIDATE the current direction (executable world models + explore-first)
@@ -158,6 +158,24 @@ R5. **Test-time training on a tiny model** (NVARC 2025 winner: Qwen-4B + TTT + s
     arXiv:2511.02886). This is the static-grid (v1/v2) recipe; less direct for interactive v3 but
     relevant to a future learned intuition prior (item #8 / B8). *Action:* park as a B8 reference —
     do NOT start (needs a GPU training route); revisit only after B2–B4 are live.
+R6. **Orchestrator + subagents with COMPRESSED-summary context control** (Symbolica *Arcgentica*,
+    open-source `symbolica-ai/arcgentica` + `symbolica-ai/ARC-AGI-3-Agents`; blog
+    https://www.symbolica.ai/blog/arc-agi-3 ; scores 36.08% on the 25-game public set = 113/182
+    levels, 7/25 games, and solves all 3 public envs incl. ours). Integrated 2026-07-07 RESEARCH-2
+    cycle — NEW vs R1–R5. Key mechanism: a top-level orchestrator never touches the environment; it
+    delegates to specialised subagents that return **compressed textual summaries**, which caps
+    context growth so a long exploration transcript never blows the coder's context window. This is
+    directly relevant to our `runtime_coder` Stage-3.5 and the brain planner on LONG walls (ls20
+    L5–L6, ft09 L2–L5): today we feed raw obs/one-step transitions into the coder model, which grows
+    unbounded as exploration deepens. *Action:* add a pure `brain/summarize.py` (or a helper in
+    `runtime_coder`) that compresses recorded transitions into a fixed-size structured digest
+    (object/scene deltas + tried-action → outcome table) BEFORE the coder prompt, env-gated
+    `V21_CODER_DIGEST` (default OFF); slots between obs-build and `OllamaBackend.complete`. Keep it
+    additive + offline-testable (digest is deterministic over a mock transition log; assert bounded
+    length + lossless action→outcome recall). *Done when:* a Mac cadence shows the coder step
+    completing (not stalling/OOM) on a deep wall where it previously timed out — ties into the
+    160000Z stall root-cause. Do NOT adopt their multi-agent SDK wholesale (heavy dep, network);
+    port only the summary-compression idea into the existing single-coder path.
 
 ## Stop condition
 All 20 levels across the 3 games solved + verified at RHAE 1.0 (or the highest reachable),
