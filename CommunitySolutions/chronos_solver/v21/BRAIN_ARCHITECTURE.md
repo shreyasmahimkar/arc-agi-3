@@ -151,10 +151,46 @@ learned on one game solving a level of another.
 
 ---
 
+## 5b. Literature validation (research feed, 2026-07-07)
+
+A RESEARCH-branch scan confirmed the brain's direction and added three concrete
+mechanisms (tracked as BACKLOG R1–R3):
+
+- **Explore→Verify→Plan + belief-entropy commit gate** (AERA, arXiv:2605.25931).
+  The mechanism that produces non-zero RHAE on hidden-rule games is an explicit
+  world-model *hypothesis* plus a gate that only hands off to the planner once
+  belief entropy drops (or a ≈40%-of-human-baseline explore budget is spent).
+  This is the missing piece for subsystem 3 (hypotheses) → 4 (planner): make the
+  explore→plan transition a real, entropy-gated commitment rather than a fixed
+  cascade order. Their 55-game code-track entry is "BFS + offline pre-solve
+  cache" (RHAE 0.30) — i.e. our exact spine — external validation of the design.
+- **Verify → MDL-refactor → plan-through-model** (Rodionov, arXiv:2605.05138):
+  reinforces subsystems 2–3; prioritize the MDL refactor pass (shorter program
+  reproducing all transitions) and best-of-N WM synthesis (runs vary a lot).
+- **Graph-based level explorer** (arXiv:2512.24156): frame processor (segmentation
+  → status-bar masking → priority action grouping → **state hashing**) → graph
+  explorer with **frontier management**. State-hash dedup + frontier management
+  drop straight into the BFS/planner; priority action grouping orders ACTION6
+  targets — all directly useful for vc33 L4–L6.
+
+Speed–Depth note (RHAE is quadratic in action count): keep the shortest-plan gate
+strict; long repeat-heavy wins should be revisited to shorten, not left at RHAE<1.
+
+---
+
 ## 6. Key references
 
 - ARC Prize Foundation (2026). *ARC-AGI-3: A New Challenge for Frontier Agentic
   Intelligence.* arXiv:2603.24621.
+- Liew, K.H. (2026). *Explore Before You Solve: The Speed–Depth Trade-off in
+  Epistemic Agents for ARC-AGI-3.* arXiv:2605.25931. (EXPLORE/VERIFY/PLAN +
+  belief-entropy commit gate; ≈40%-of-baseline explore budget; RHAE-as-Pareto.)
+- Rudakov, Shock, Cowley (2026). *Graph-Based Exploration for ARC-AGI-3
+  Interactive Reasoning Tasks.* arXiv:2512.24156. (Frame processor + state hashing
+  + frontier-managed graph explorer.)
+- ARC Prize Foundation (2026). *ARC Prize 2025: Technical Report.* arXiv:2601.10904.
+  (NVARC winner: Qwen-4B + test-time training + synthetic data.) McGovern, R.
+  (2025). *Test-time Adaptation of Tiny Recursive Models.* arXiv:2511.02886.
 - Rodionov, S. (2026). *Executable World Models for ARC-AGI-3 in the Era of
   Coding Agents.* arXiv:2605.05138. (Verifier-driven executable WM; tunnel-vision
   + weak-planner failure modes.)

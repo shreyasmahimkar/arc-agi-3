@@ -110,6 +110,55 @@ B8. **(Optional, far) Neural latent world model.** H-JEPA/Dreamer-style latent p
     behind the same planner/goal interfaces. Blocked on a GPU training path; not offline-verifiable
     in 4h increments — do NOT start until B2–B7 are solid and a training route exists.
 
+# =====================================================================
+# RESEARCH FEED — integrated 2026-07-07 (RESEARCH-branch cycle)
+# Latest ARC-AGI-3 literature scanned (arXiv / ARC Prize / Kaggle). Each item is
+# ADDITIVE, env-gated when shipped, and slots into the proven cascade + brain.
+# These VALIDATE the current direction (executable world models + explore-first)
+# and add concrete, prioritized mechanisms. Do not duplicate B2–B6 — these refine
+# them with specific techniques from the papers.
+# =====================================================================
+R1. **Explore→Verify→Plan with a belief-entropy COMMIT GATE** (AERA, arXiv:2605.25931,
+    "Explore Before You Solve"). Strongest single finding: what enables non-zero RHAE on
+    hidden-rule games is maintaining explicit world-model HYPOTHESES and *gating the switch from
+    exploration to planning on a proxy for belief entropy* (uncertainty over models). Also gives a
+    concrete budget heuristic: spend ≈40% of the human baseline on exploration before committing.
+    Their public-set taxonomy explicitly places our walls — ft09 = blind-ACTION6 reflex; ls20 =
+    budget-constrained repeated-action (50–200 steps); vc33 = probe-then-ACTION6. *Action:* sharpen
+    B4 into a real commit gate — in `brain/hypotheses.py`, don't hand off to the planner until the
+    surviving-hypothesis set collapses (entropy proxy below threshold) OR the ≈40%-of-baseline
+    explore budget is spent; expose the budget as an env knob. Pure/offline-testable (entropy proxy
+    + gate over injected hypotheses). *Done when:* on a wall, the gate reaches a single trusted model
+    in fewer scored actions than greedy BFS. NOTE: their 55-game code-track entry is "BFS + offline
+    pre-solve cache" at RHAE 0.30 — i.e. OUR architecture — good external validation.
+R2. **Verify → MDL-refactor → plan-through-model** (Executable World Models, arXiv:2605.05138).
+    The verifier-driven executable-WM loop (verify against observations → refactor toward SIMPLER
+    abstractions as an MDL proxy → plan through the model before acting) is exactly B2/B3; the paper
+    reports 15/25 games solved at RHAE 58% with a strong coder model. Two concrete adds: (a)
+    prioritize the **MDL refactor pass** in `brain/world_model.py` (shorter program that still
+    reproduces all recorded transitions → better generalization), and (b) the paper flags that WM
+    quality "varies substantially across runs" → add **best-of-N / multi-hypothesis** WM synthesis
+    (ties into R1's competing hypotheses). *Action:* bump B2's MDL-refactor to the next CODE-branch
+    item once a Mac run gives runtime_coder live signal; keep it env-gated + verifier-gated.
+R3. **Graph-based level explorer + frame processor** (arXiv:2512.24156). Method = Frame Processor
+    (image segmentation → status-bar detection & MASKING → priority-based action grouping → STATE
+    HASHING) feeding a Level Graph Explorer (explicit state-graph, action-selection strategy,
+    FRONTIER MANAGEMENT). We already have transient/status-bar masking and connected-component
+    perception (B1); the new, directly-usable pieces are **state hashing for dedup** and **frontier
+    management** to make BFS explore unique states instead of re-expanding, plus **priority-based
+    action grouping** to order ACTION6 targets. *Action:* fold state-hash dedup + priority action
+    grouping into the BFS/planner for vc33 L4–L6 (item #6); offline-testable on a mock state graph.
+R4. **Speed–Depth / RHAE is quadratic** (2605.25931, §3). RHAE = (human/AI actions)², so a solve
+    that uses 2× human actions earns only 25% credit; budget-constrained repeated-action wins
+    (ls20-style) are penalized hard for length. *Action:* keep the shortest-plan gate strict and add
+    a suffix-trim/A* optimality pass for repeat-heavy solves (extends legacy #7/#8) — a solved-but-
+    long wall should be revisited to SHORTEN, not just left at RHAE<1.
+R5. **Test-time training on a tiny model** (NVARC 2025 winner: Qwen-4B + TTT + synthetic data,
+    24% on ARC-AGI-2, ARC Prize 2025 report arXiv:2601.10904; TRM test-time adaptation
+    arXiv:2511.02886). This is the static-grid (v1/v2) recipe; less direct for interactive v3 but
+    relevant to a future learned intuition prior (item #8 / B8). *Action:* park as a B8 reference —
+    do NOT start (needs a GPU training route); revisit only after B2–B4 are live.
+
 ## Stop condition
 All 20 levels across the 3 games solved + verified at RHAE 1.0 (or the highest reachable),
 and the offline Kaggle notebook reproduces them. Then freeze and submit. Epic B has its OWN
