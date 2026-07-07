@@ -20,7 +20,7 @@ builds on prior attempts instead of repeating them. Format:
   sub-1.0 solve / R4 shortening). Corpus untouched (best stays the verified plan); one focused change
   in `v21/cadence_runner.py` only, no v19/v20 touched. Verified: `py_compile`
   (cadence_runner/test_offline) + `test_offline.py` GREEN with 4 new `_should_resolve` checks
-  (unsolved→True, solved→False default, flag→True, unsolved+flag→True). Commit <hash>. ls20
+  (unsolved→True, solved→False default, flag→True, unsolved+flag→True). Commit 572c4b5. ls20
   guardrail SKIPPED (`arc_agi` not importable in the Linux sandbox; change touches no v19 code or
   ls20 solutions). Expected next Mac run: L0–L4 replay in seconds, so ls20 BFS reaches L5 with the
   full per-level budget intact — first real shot at the L5 wall (pair with V21_RUNTIME_CODER=1 /
