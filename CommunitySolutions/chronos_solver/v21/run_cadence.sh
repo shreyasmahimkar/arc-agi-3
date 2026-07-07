@@ -8,7 +8,8 @@ cd "$HERE"
 # --- config (edit these if your paths/model differ) ---------------------------
 PY="${PY:-$HERE/../../../.venv312/bin/python}"
 export V21_LLM_BACKEND="${V21_LLM_BACKEND:-ollama}"
-export V21_OLLAMA_MODEL="${V21_OLLAMA_MODEL:-qwen2.5-coder:3b}"  # 3b coexists with heavy BFS (7b OOM'd -> Ollama 500)
+export V21_OLLAMA_MODEL="${V21_OLLAMA_MODEL:-qwen2.5-coder:7b-instruct-q4_K_M}"  # q4 7b (~4.7GB) fits M1 alongside BFS; deadline watchdog guards any swap/hang. Fallback to 3b below if absent.
+V21_OLLAMA_FALLBACK="${V21_OLLAMA_FALLBACK:-qwen2.5-coder:3b}"  # used if the primary model isn't pulled
 BUDGET="${BUDGET:-1200}"                      # seconds/level; raised 600->1200 for deeper walls (ls20 L4 timed out at 600; L5-L6/ft09 L2-L5 need more BFS depth)
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # so `ollama` is found under launchd
 
@@ -28,6 +29,17 @@ echo "[$STAMP] starting cadence (budget=${BUDGET}s, model=$V21_OLLAMA_MODEL)" | 
 if command -v ollama >/dev/null 2>&1; then
   curl -s --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1 || (ollama serve >>"$LOG" 2>&1 &)
   sleep 3
+  # Preflight: use the primary model only if it's actually pulled; else fall back
+  # to the smaller model. Prevents the 404/500 (model-not-found) failure mode.
+  if ! ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$V21_OLLAMA_MODEL"; then
+    if ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$V21_OLLAMA_FALLBACK"; then
+      echo "[preflight] '$V21_OLLAMA_MODEL' not pulled -> falling back to '$V21_OLLAMA_FALLBACK'" | tee -a "$LOG"
+      export V21_OLLAMA_MODEL="$V21_OLLAMA_FALLBACK"
+    else
+      echo "[preflight] WARNING: neither '$V21_OLLAMA_MODEL' nor '$V21_OLLAMA_FALLBACK' pulled; runtime_coder will hit safety nets" | tee -a "$LOG"
+    fi
+  fi
+  echo "[preflight] using model=$V21_OLLAMA_MODEL" | tee -a "$LOG"
 fi
 
 # keep the Mac awake for the duration of the run, then run the cadence
