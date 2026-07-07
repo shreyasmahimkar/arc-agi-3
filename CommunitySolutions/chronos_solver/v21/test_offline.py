@@ -198,6 +198,31 @@ def main():
                  blitz.blitz_macros({}, 0, [[(9, None), (8, None)]],
                                     _clone, _play_seq) is None)
 
+    # 9c) B1 wiring: merge_click_targets fuses engine-scanned clicks with
+    #     perception component centroids, deduped, scan-first, env-gated.
+    _scan = [{"x": 1, "y": 1}, {"x": 5, "y": 5}]
+    _perc = [{"x": 5, "y": 5}, {"x": 9, "y": 2}]  # (5,5) dup, (9,2) new
+    #   (a) OFF -> scan clicks unchanged (deduped), no perception targets added
+    off = blitz.merge_click_targets(_scan, [[0]], False,
+                                    perception_fn=lambda f: _perc)
+    ok &= _check("merge_click_targets OFF -> scan-only (no perception)",
+                 off == _scan)
+    #   (b) ON -> appends only NEW perception centroids after the scan targets
+    on = blitz.merge_click_targets(_scan, [[0]], True,
+                                   perception_fn=lambda f: _perc)
+    ok &= _check("merge_click_targets ON -> adds new perception coord, dedups",
+                 on == [{"x": 1, "y": 1}, {"x": 5, "y": 5}, {"x": 9, "y": 2}])
+    #   (c) real perception_fn: two separate same-colour blobs -> both targets
+    _grid_two = [
+        [0, 0, 0, 0, 0],
+        [0, 3, 0, 3, 0],
+        [0, 3, 0, 3, 0],
+        [0, 0, 0, 0, 0],
+    ]
+    real = blitz.merge_click_targets([], _grid_two, True)
+    ok &= _check("merge_click_targets ON -> real perception yields 2 blob coords",
+                 len(real) == 2 and {t["x"] for t in real} == {1, 3})
+
     # 10) brain layer (BACKLOG Epic B) — cognitive subsystems, all pure/offline.
     from brain import perception as P
     from brain import world_model as WM

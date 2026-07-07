@@ -129,6 +129,55 @@ def blitz_macros(start_game, target_level, macros, clone, play):
     return best
 
 
+def merge_click_targets(scan_clicks, frame, use_perception,
+                        perception_fn=None, limit=None):
+    """Merge engine-scanned ACTION6 click targets with perception's connected-
+    component centroids (BACKLOG Epic B / B1), deduped by (x, y).
+
+    v19's `_scan_actions` sources clicks from per-colour medians, so several
+    spatially-separate blobs of the SAME colour collapse to one point that can
+    land on background (between them). vc33-style click walls need a click ON
+    each distinct component; `brain.perception.click_targets` gives one target
+    per connected component. This helper appends those perception targets after
+    the scan targets (scan first — they're the proven default), skipping any
+    (x, y) already present, so the default ordering is preserved and only NEW,
+    otherwise-missed component centroids are added.
+
+    When `use_perception` is falsy (default), `scan_clicks` is returned de-duped
+    but otherwise unchanged — so the wiring is a no-op unless V21_BRAIN_PERCEPTION
+    is set. Pure: `perception_fn` defaults to `brain.perception.click_targets`
+    but is injectable so this is fully offline-testable without a frame engine.
+    Every returned target is still only a PROPOSAL — the caller verifies any
+    plan a click seeds.
+    """
+    out, seen = [], set()
+    for d in (scan_clicks or []):
+        try:
+            key = (d.get("x"), d.get("y"))
+        except AttributeError:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    if use_perception and frame is not None:
+        if perception_fn is None:
+            from brain.perception import click_targets as perception_fn
+        try:
+            extra = perception_fn(frame)
+        except Exception:
+            extra = []
+        for d in (extra or []):
+            key = (d.get("x"), d.get("y"))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(d)
+            if limit is not None and len(out) >= limit:
+                break
+    return out
+
+
 def _completed(v):
     """Coerce a play() return into an int levels_completed (defensive)."""
     try:
@@ -183,6 +232,19 @@ def blitz_for_solver(solver, level_idx, repeat_K=200):
                     clicks.append(d)
         except Exception:
             clicks = []
+
+    # B1: augment engine-scanned clicks with perception connected-component
+    # centroids (one per distinct blob) so same-colour walls (vc33 L4–L6) get a
+    # click ON each component, not the per-colour median between them. Env-gated
+    # OFF by default — zero change to the proven default path unless opted in.
+    import os as _os
+    _use_perc = _os.environ.get("V21_BRAIN_PERCEPTION", "0") \
+        not in ("", "0", "false", "False", "no", "off")
+    if _use_perc:
+        try:
+            clicks = merge_click_targets(clicks, f0, True)
+        except Exception:
+            pass  # fall through to the scan-only clicks on any error
 
     def _clone(g):
         return solver._restore(solver._snap(g))
