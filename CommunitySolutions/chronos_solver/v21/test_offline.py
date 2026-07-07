@@ -142,6 +142,33 @@ def main():
     ok &= _check("blitz returns None when no cheap win exists",
                  blitz.blitz_solve({}, 0, [1, 2], [], _clone, lambda s, x: 0, repeat_K=10) is None)
 
+    #   (e) click-REPEAT win (vc33-like): hammer ONE coord ×k -> shortest k on
+    #       the RIGHT target (a different target repeated never wins)
+    def _play_click_rep(s, step):
+        aid, data = step
+        if aid == 6 and data == {"x": 46, "y": 56}:
+            s["c"] = s.get("c", 0) + 1
+        return 1 if s.get("c", 0) >= 3 else 0
+    p_crep = blitz.blitz_solve({}, 0, [1, 2],
+                               [{"x": 12, "y": 56}, {"x": 46, "y": 56}],
+                               _clone, _play_click_rep, repeat_K=20)
+    ok &= _check("blitz solves click-REPEAT (shortest k=3 on right coord)",
+                 p_crep == [(6, {"x": 46, "y": 56})] * 3)
+
+    #   (f) prefers a shorter simple-action win over a longer click-repeat
+    #       (exercises the len(best)-1 cap that short-circuits the click tier)
+    def _play_mixed(s, step):
+        aid, data = step
+        if aid == 2:
+            s["a"] = s.get("a", 0) + 1
+        if aid == 6 and data == {"x": 5, "y": 5}:
+            s["k"] = s.get("k", 0) + 1
+        return 1 if (s.get("a", 0) >= 2 or s.get("k", 0) >= 5) else 0
+    p_mixed = blitz.blitz_solve({}, 0, [2], [{"x": 5, "y": 5}],
+                                _clone, _play_mixed, repeat_K=20)
+    ok &= _check("blitz prefers shorter simple win over longer click-repeat",
+                 p_mixed == [(2, None), (2, None)])
+
     # 9b) blitz MACRO replay (BACKLOG #4/#9): replay a solved sibling's plan as a
     #     Go-Explore seed; keep only the shortest winning prefix; never fabricate.
     def _play_seq(s, step):  # wins as soon as action 3 has been played

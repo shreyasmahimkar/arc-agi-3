@@ -8,6 +8,7 @@
 #   (1) each simple action once            (length-1 plan)
 #   (2) each click target once (ACTION6)   (length-1 plan)
 #   (3) repeat a single action ×K          (shortest k that wins)
+#   (4) repeat a single click target ×K    (vc33-style: hammer one component)
 #
 # The core `blitz_solve` is PURE — it takes injected `clone`/`play` closures and
 # a list of candidate actions, so it is fully offline-testable with a mock game
@@ -36,7 +37,10 @@ def blitz_solve(start_game, target_level, simple_actions, click_targets,
       repeat_K:       max repeats to try for the repeat-action tier.
 
     Returns the shortest plan `[(aid, data), ...]` whose replay reaches the goal,
-    preferring length-1 wins. Pure: no engine/network/global state.
+    preferring length-1 wins. Tiers, cheapest-first: each simple action once,
+    each click once, repeat-one-action ×K, repeat-one-click ×K (the last cracks
+    vc33-style walls that finish by hammering a single component). Pure: no
+    engine/network/global state.
     """
     goal = target_level + 1
     simple_actions = list(simple_actions or [])
@@ -62,6 +66,25 @@ def blitz_solve(start_game, target_level, simple_actions, click_targets,
             if _completed(play(g, (aid, None))) >= goal:
                 if best is None or k < len(best):
                     best = [(aid, None)] * k
+                break
+
+    # Tier 3: repeat a single CLICK target ×K; keep the shortest winner.
+    # vc33-style orchestration walls often finish by hammering ONE component
+    # many times (its verified solutions end in runs like 9× the same ACTION6
+    # coord). Plain BFS branches over every click target at every depth and
+    # times out; a fixed-coord repeat is a depth-K line search blitz wins in
+    # ≤K probes per target. Tier 1b already tested k=1 for each target, so a
+    # repeat only helps when k≥2 — but we start at 1 to mirror Tier 2 and stay
+    # self-contained (the k=1 re-probe is a single cheap fork step per target).
+    for data in click_targets:
+        cap = repeat_K if best is None else min(repeat_K, len(best) - 1)
+        if cap < 1:
+            continue  # can't beat an already-found shorter plan
+        g = clone(start_game)
+        for k in range(1, cap + 1):
+            if _completed(play(g, (6, data))) >= goal:
+                if best is None or k < len(best):
+                    best = [(6, data)] * k
                 break
     return best
 
