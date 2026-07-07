@@ -12,6 +12,11 @@ export V21_OLLAMA_MODEL="${V21_OLLAMA_MODEL:-qwen2.5-coder:7b}"
 BUDGET="${BUDGET:-600}"                       # seconds/level; raise for deeper passes
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # so `ollama` is found under launchd
 
+# --- wall-cracking features (defaults ON; override in the environment) ---------
+export V21_BLITZ="${V21_BLITZ:-1}"            # Stage-0 cheap-win probe (blitz.py)
+export V21_EVOLVE_PROBE="${V21_EVOLVE_PROBE:-1}"   # let evolve actually PROMOTE (live rollout)
+export V21_RUNTIME_CODER="${V21_RUNTIME_CODER:-1}" # on-the-fly WM writer ON (Qwen writes code for BFS/blitz-blocked walls)
+
 mkdir -p logs
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG="logs/cron_${STAMP}.log"

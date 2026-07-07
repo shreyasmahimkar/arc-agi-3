@@ -38,6 +38,10 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in
    `graph_explore`. *Done when:* ≥1 of L4–L6 solved+verified.
+   [PARTIAL — blitz click-REPEAT tier CODED] `blitz.blitz_solve` now repeats a single ACTION6
+   coord ×K (shortest-gated), matching vc33's "hammer one component" endings (commit e049348).
+   *Remaining:* a Mac cadence to confirm it commits a wall (L4–L6) whose win is a fixed-coord
+   repeat; for mixed-coord walls, still needs better click-target ordering/selection.
 
 ## P2 — optimality & generalization
 7. **ls20 L1 tighten 45→≤41** (only sub-1.0 solve). Masked/A* BFS or suffix trim. *Done when:* RHAE(L1)=1.0.
@@ -56,6 +60,56 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
     agent+engine+cache; verify it runs network-off on a T4.
 12. **Config-aware `MyAgent` load** of `champion.json` (blitz_K/action_order/heuristics).
 
+# =====================================================================
+# EPIC B — Cognitive ("brain") layer (game-general agent)
+# Full design + rationale + research refs: BRAIN_ARCHITECTURE.md
+# =====================================================================
+# Goal: stack a cognitively-inspired layer (perception → executable world model
+# → hypotheses → planner → memory → goal → consolidation) on top of the proven
+# blitz→BFS→runtime_coder cascade, so the loop both cracks the remaining walls
+# AND grows toward transfer to UNSEEN ARC-AGI-3 games. Spine = executable /
+# program-synthesis world models (Rodionov 2026), NOT neural latent (that's B8).
+# INVARIANT: the brain is additive — the proven cascade stays the fallback,
+# every brain plan is still verify_solution + shortest-gated, each subsystem is
+# wired live only behind its own env flag (default OFF) AFTER a Mac cadence
+# proves it, and the offline submission guard is never disabled. All `brain/`
+# code is pure/dependency-free at import and covered by test_offline.py.
+
+## Epic B — phased build (each phase: green py_compile + test_offline, committed, env-gated OFF)
+B1. **Perception scene-graph.** [DONE this session] `brain/perception.py`: connected-component
+    objects (colour/size/bbox/centroid), frame-diff, and ACTION6 `click_targets` (one per
+    component — fixes v19's per-colour-median clicks). 6 offline checks. *Remaining:* wire
+    `click_targets` into `blitz`/BFS click selection behind `V21_BRAIN_PERCEPTION` on a Mac
+    cadence (helps vc33 L4–L6).
+B2. **Executable world-model persistence + verifier.** [PARTIAL — `brain/world_model.py` verifier
+    core + template DONE] Generalise `runtime_coder` to a per-game model on disk
+    (`brain/wm/<game>/`) that must reproduce recorded transitions (`verify_model`, `is_trusted`);
+    add an MDL refactor pass. *Done when:* a persisted model reproduces a solved level's
+    transitions offline and the loop reuses it next run.
+B3. **MPC plan-executor.** [PARTIAL — `brain/planner.py` `plan_in_model` + `execute_and_verify`
+    cores DONE] Wire to the real engine: plan inside the trusted model (unscored), execute with
+    step-wise frame-mismatch abort; scored actions only on verified plans. *Done when:* a level is
+    solved via model-planned + executor-verified actions on a Mac cadence.
+B4. **Hypothesis manager (anti tunnel-vision).** [PARTIAL — `brain/hypotheses.py` `falsify` +
+    `most_discriminating_action` cores DONE] Seed 2–3 competing WorldModels; spend scored actions
+    on the most-discriminating move; falsify on mismatch. *Done when:* on a wall, discriminating
+    exploration reaches a trusted model in fewer scored actions than greedy.
+B5. **Goal induction.** [PARTIAL — `brain/goal.py` score-signal inducers DONE] Add frame-motif
+    goal induction (perception motif + memory). *Done when:* induced goal drives a solve with no
+    hand-coded goal.
+B6. **Cross-game concept library.** [PARTIAL — `brain/memory.py` perceptual key + retrieval DONE]
+    Persist macros + WM fragments + motifs to a bank keyed by perceptual signature; retrieve to
+    seed a DIFFERENT game's search. *Done when:* a concept learned on one game solves a level of
+    another (the Epic-B success metric). Subsumes/extends legacy #9.
+B7. **Wake-sleep consolidation.** Extend `evolve`: replay solved trajectories, compress/refactor
+    the library, re-distil the intuition prior. *Done when:* held-out solve-rate improves after a
+    consolidation pass.
+B8. **(Optional, far) Neural latent world model.** H-JEPA/Dreamer-style latent predictive model
+    behind the same planner/goal interfaces. Blocked on a GPU training path; not offline-verifiable
+    in 4h increments — do NOT start until B2–B7 are solid and a training route exists.
+
 ## Stop condition
 All 20 levels across the 3 games solved + verified at RHAE 1.0 (or the highest reachable),
-and the offline Kaggle notebook reproduces them. Then freeze and submit.
+and the offline Kaggle notebook reproduces them. Then freeze and submit. Epic B has its OWN
+success metric — held-out generalisation (a concept from one game solving another, B6) — pursued
+in parallel without ever risking the verified corpus.

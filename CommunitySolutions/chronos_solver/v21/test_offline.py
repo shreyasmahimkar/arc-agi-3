@@ -198,6 +198,108 @@ def main():
                  blitz.blitz_macros({}, 0, [[(9, None), (8, None)]],
                                     _clone, _play_seq) is None)
 
+    # 10) brain layer (BACKLOG Epic B) — cognitive subsystems, all pure/offline.
+    from brain import perception as P
+    from brain import world_model as WM
+    from brain import hypotheses as HY
+    from brain import planner as PL
+    from brain import memory as MEM
+    from brain import goal as GO
+    ok &= _check("brain modules import", True)
+
+    # 10a) perception: connected components on a grid with TWO separate blobs
+    #      of the same colour (bg=0). Per-colour median would give one point
+    #      between them; components give TWO distinct objects/click targets.
+    grid = [
+        [0, 0, 0, 0, 0],
+        [0, 3, 0, 3, 0],
+        [0, 3, 0, 3, 0],
+        [0, 0, 0, 0, 0],
+    ]
+    sc = P.scene(grid)
+    ok &= _check("perception finds 2 components (same colour, separate blobs)",
+                 sc["n_objects"] == 2 and sc["background"] == 0)
+    ct = P.click_targets(grid)
+    #   two distinct click targets at the two blob centroids (col=1 and col=3)
+    ok &= _check("perception yields 2 distinct click targets",
+                 len(ct) == 2 and {t["x"] for t in ct} == {1, 3}
+                 and all(t["y"] == 2 for t in ct))  # median row of {1,2} == 2
+    #   diff: turning one blob's top cell to bg registers exactly one change
+    g2 = [row[:] for row in grid]; g2[1][1] = 0
+    d = P.diff(grid, g2)
+    ok &= _check("perception diff detects 1 disappeared cell",
+                 d["n_changed"] == 1 and d["disappeared"] == [(1, 1)])
+    #   numpy-free but numpy-compatible: a .tolist()-able object is accepted
+    class _Arr:
+        def __init__(self, g): self._g = g
+        def tolist(self): return self._g
+    ok &= _check("perception accepts array-like (.tolist)",
+                 P.scene(_Arr(grid))["n_objects"] == 2)
+
+    # 10b) world_model verifier: a correct predictor reproduces records; a
+    #      wrong one is flagged and not trusted.
+    recs = [("s0", "a", "s1"), ("s1", "a", "s2")]
+    good = WM.verify_model(lambda prev, a: {"s0": "s1", "s1": "s2"}[prev], recs)
+    ok &= _check("world_model verifier trusts a correct model",
+                 good["accuracy"] == 1.0 and WM.is_trusted(good))
+    bad = WM.verify_model(lambda prev, a: "WRONG", recs)
+    ok &= _check("world_model verifier rejects a wrong model",
+                 bad["accuracy"] == 0.0 and not WM.is_trusted(bad))
+
+    # 10c) hypotheses: falsify drops mispredictors; discriminating action is the
+    #      one whose predictions split the hypotheses the most.
+    #   two hypotheses, only H_b predicts "X" for action 1 -> observing "X"
+    #   keeps H_b, drops H_a.
+    hyps = [{"name": "a"}, {"name": "b"}]
+    def _pred(h, a):
+        # H_a: action1->"P", action2->"Q";  H_b: action1->"X", action2->"Q"
+        table = {"a": {1: "P", 2: "Q"}, "b": {1: "X", 2: "Q"}}
+        return table[h["name"]][a]
+    surv = HY.falsify(hyps, 1, "X", _pred)
+    ok &= _check("hypotheses.falsify keeps only consistent hypothesis",
+                 len(surv) == 1 and surv[0]["name"] == "b")
+    #   action 1 splits the two hypotheses (P vs X); action 2 does not (Q vs Q)
+    da = HY.most_discriminating_action(hyps, [2, 1], _pred)
+    ok &= _check("hypotheses picks the discriminating action (1, not 2)", da == 1)
+
+    # 10d) planner: BFS in a toy model + MPC executor abort-on-mismatch.
+    #   model: integer state, action +1; goal at 3 -> plan is [+1,+1,+1]
+    plan = PL.plan_in_model(0, [1], lambda s, a: s + a, lambda s: s == 3, max_depth=8)
+    ok &= _check("planner.plan_in_model finds shortest plan in model",
+                 plan == [1, 1, 1])
+    #   executor: model predicts frames "1","2","3"; real diverges at step 2
+    #   (returns "2","BAD") -> mismatch_at == 1, not won.
+    seqp = iter(["1", "2", "3"])
+    seqr = iter([1, 1, 1])          # levels_completed (never reaches goal=1? use 0)
+    obs = iter(["1", "BAD"])
+    res = PL.execute_and_verify(
+        [1, 1, 1],
+        real_play=lambda a: 0,
+        model_predict=lambda a: next(seqp),
+        observe=lambda: next(obs),
+        goal_completed=1)
+    ok &= _check("planner MPC aborts at first frame mismatch",
+                 res["mismatch_at"] == 1 and res["won"] is False)
+
+    # 10e) memory: a perceptual key transfers across games (same structure) and
+    #      retrieval ranks the structurally-similar concept first.
+    k_here = MEM.perceptual_key(sc)
+    lib = [
+        {"key": MEM.perceptual_key(P.scene(grid)), "concept": "same_shape"},
+        {"key": (99, 99, 0, ()), "concept": "unrelated"},
+    ]
+    top = MEM.retrieve(lib, k_here, k=1)
+    ok &= _check("memory retrieves the structurally-similar concept first",
+                 top and top[0][1]["concept"] == "same_shape" and top[0][0] == 1.0)
+
+    # 10f) goal induction from the score signal.
+    gd = GO.induce_from_scores([0, 0, 1, 1, 2])
+    ok &= _check("goal induces 'maximize_progress' from a rising signal",
+                 gd["kind"] == "maximize_progress" and gd["monotone"] is True)
+    ok &= _check("goal_reached_by_progress fires on a level advance",
+                 GO.goal_reached_by_progress(1, 2) is True
+                 and GO.goal_reached_by_progress(2, 2) is False)
+
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
 

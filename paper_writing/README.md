@@ -9,6 +9,8 @@ ARC-AGI-3 approach. Built to the competition's six judging criteria.
 |------|-----------|--------------------|
 | **`KAGGLE_WRITEUP_SUBMISSION.md`** | **Start here.** Field-by-field copy-paste pack for the *Create Writeup* form. | all |
 | `PAPER.md` | The Project Description (body = **1,070 words**, ≤1500) + bibliography. | Project Description |
+| **`Chronos_Solver_ARC_Prize_2026.pdf`** | Polished 8-page paper (abstract + all 8 figures + bibliography). | Public Project Link / Files |
+| `make_pdf.py` | Regenerates the PDF from `PAPER.md` + `figures/`. | — (reproducibility) |
 | `chronos_paper_charts.ipynb` | Public notebook — full writeup framing + 8 charts inline (executed). | Public notebook link |
 | `make_figures.py` | Standalone, reproducible generator for every figure. | — (reproducibility) |
 | `figures/thumbnail_560x280.png` | Card / thumbnail image (exact size). | Card / Thumbnail |

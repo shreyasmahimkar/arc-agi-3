@@ -245,7 +245,7 @@ class Fable5Agent:
 def main() -> None:
     ap = argparse.ArgumentParser(description="claude-fable-5 plays ARC-AGI-3")
     ap.add_argument("--game", default="ls20")
-    ap.add_argument("--model", default=os.getenv("FABLE_MODEL", "claude-fable-5"))
+    ap.add_argument("--model", default=os.getenv("FABLE_MODEL", "claude-opus-4-8"))
     ap.add_argument("--max-actions", type=int, default=250)
     ap.add_argument("--history-turns", type=int, default=6)
     ap.add_argument("--render", action="store_true",

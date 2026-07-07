@@ -51,7 +51,7 @@ scorecard, and token usage.
 |---|---|---|
 | `--game` | `ls20` | any game prefix from `/api/games` |
 | `--max-actions` | `250` | API budget for the run |
-| `--model` | `claude-fable-5` | any Anthropic model string |
+| `--model` | `claude-opus-4-8` | any Anthropic model string |
 | `--history-turns` | `6` | conversation turns kept in context |
 | `--render` | off | draw the colored game grid live in the terminal |
 

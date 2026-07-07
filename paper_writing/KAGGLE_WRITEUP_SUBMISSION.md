@@ -80,6 +80,11 @@ the limit). **Before submitting, replace `<fill in>` with your leaderboard submi
 **Files** (optional, ≤100 MB): you may also upload `chronos_paper_charts.ipynb` and the
 `figures/` directly, but the scored public notebook above is the primary code deliverable.
 
+**Optional — Public Project Link (PDF of the paper):** upload
+**`paper_writing/Chronos_Solver_ARC_Prize_2026.pdf`** (8 pages, ~1.1 MB — title page,
+abstract, all 8 figures with captions, bibliography). The competition lets you attach a
+PDF version of the paper via the Public Project Link / Files; this is that PDF.
+
 ---
 
 ## How to publish the *companion* figures notebook (optional)

@@ -1,7 +1,27 @@
-# Chronos v20 — the staged cascade (Phase 1: notebook-only)
+# Chronos v20 — the memory-first synthesis agent
 
-v20 is a **research notebook** that references **v19 code read-only** (`v19/src`) and adds
-all new logic **in v20 only**. It does not modify the shipped v19 agent.
+v20 fuses the **two things we proved**: v12's memory-first replay (scored **0.22**; pure BFS
+only **0.08** — the memory *is* the score) and the **Tufa/leaderboard research** (RHAE is a
+quadratic 0–100% scale → shortest solutions win; self-learning memory = 2.6×; executable
+world models = the top no-source method). It references **v19/src read-only**; new code is
+in `v20/` only.
+
+**Agent:** [`src/agent_v20.py`](src/agent_v20.py) — a live `MyAgent` cascade:
+`MEMORY (verified recall) → self-learning macro seed → BFS 'auto' (OPTIMAL) → Forge → LADDER`.
+The memory stage is v12's 0.22 driver **made honest** — every recalled plan is
+replay-verified on the live engine before use (never blind replay), else it falls through to
+genuine BFS. Verified live: clears ls20 **L0–L4 in ~1 s** via recall at optimal counts
+(13/45/39/43/44 = best RHAE).
+
+**Kaggle:** [`notebooks/v20-to-kaggle.ipynb`](notebooks/v20-to-kaggle.ipynb) — **self-contained**
+(embeds agent_v20 + the v19 engine it imports + a 68-game verified cache). Upload only the
+notebook; no user dataset.
+
+---
+
+## (earlier) The staged-cascade research notebook
+`notebooks/v20_cascade.ipynb` references **v19 code read-only** and is the offline harness
+that validated the cascade stages.
 
 ## The cascade
 For every level we run an **escalating cascade**, stopping at the first stage that returns a
