@@ -66,6 +66,46 @@ def blitz_solve(start_game, target_level, simple_actions, click_targets,
     return best
 
 
+def blitz_macros(start_game, target_level, macros, clone, play):
+    """Shortest known-good MACRO plan that wins `target_level`, or None.
+
+    A "macro" is a full plan `[(aid, data), ...]` harvested from an ALREADY-SOLVED
+    sibling level (same game) — the cheapest Go-Explore seed there is (BACKLOG
+    #4/#9): sibling levels of a game often share mechanics, so replaying a
+    sibling's verified solution verbatim can crack a wall with ZERO search. Each
+    macro is replayed on a fresh fork; on a win we keep only the shortest winning
+    PREFIX (macros can overshoot the goal). Preferring shorter winners keeps the
+    shortest-plan corpus gate happy.
+
+    Pure: no engine/network/global state (injected `clone`/`play` closures). Every
+    returned plan is still routed through `verify_solution` + the shortest gate by
+    the caller — this only PROPOSES a replay.
+
+    Args:
+      start_game:    game positioned at the level's start state.
+      target_level:  level index to complete (win == levels_completed >= +1).
+      macros:        iterable of candidate plans (sibling-level solutions).
+      clone/play:    same closures as `blitz_solve`.
+    """
+    goal = target_level + 1
+    best = None
+    for plan in (macros or []):
+        if not plan:
+            continue
+        # A macro can't beat the current best if it's already at least as long.
+        if best is not None and len(plan) >= len(best):
+            continue
+        g = clone(start_game)
+        win_len = None
+        for i, step in enumerate(plan):
+            if _completed(play(g, step)) >= goal:
+                win_len = i + 1
+                break
+        if win_len is not None and (best is None or win_len < len(best)):
+            best = list(plan[:win_len])
+    return best
+
+
 def _completed(v):
     """Coerce a play() return into an int levels_completed (defensive)."""
     try:
@@ -130,6 +170,25 @@ def blitz_for_solver(solver, level_idx, repeat_K=200):
               if data else ActionInput(id=GameAction.from_id(aid)))
         r = g.perform_action(ai, raw=True)
         return int(getattr(r, "levels_completed", 0) or 0)
+
+    # Tier 0: replay ALREADY-SOLVED sibling-level plans as Go-Explore seeds. Only
+    # macros from OTHER (solved) levels of this game — never the target itself.
+    macros = []
+    sols = getattr(solver, "solutions", {}) or {}
+    for lk, plan in sols.items():
+        try:
+            same = int(lk) == int(level_idx)
+        except Exception:
+            same = (lk == level_idx)
+        if same or not plan:
+            continue
+        try:
+            macros.append([(int(a), d) for a, d in plan])
+        except Exception:
+            continue
+    m = blitz_macros(game, level_idx, macros, _clone, _play)
+    if m:
+        return m
 
     return blitz_solve(game, level_idx, simple, clicks, _clone, _play,
                        repeat_K=repeat_K)

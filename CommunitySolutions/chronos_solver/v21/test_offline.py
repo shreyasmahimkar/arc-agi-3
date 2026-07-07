@@ -142,6 +142,35 @@ def main():
     ok &= _check("blitz returns None when no cheap win exists",
                  blitz.blitz_solve({}, 0, [1, 2], [], _clone, lambda s, x: 0, repeat_K=10) is None)
 
+    # 9b) blitz MACRO replay (BACKLOG #4/#9): replay a solved sibling's plan as a
+    #     Go-Explore seed; keep only the shortest winning prefix; never fabricate.
+    def _play_seq(s, step):  # wins as soon as action 3 has been played
+        aid, _ = step
+        if aid == 3:
+            s["won"] = True
+        return 1 if s.get("won") else 0
+    #   (a) a matching sibling macro wins
+    p_macro = blitz.blitz_macros(
+        {}, 0, [[(1, None), (2, None), (3, None)]], _clone, _play_seq)
+    ok &= _check("blitz_macros replays a winning sibling plan",
+                 p_macro == [(1, None), (2, None), (3, None)])
+    #   (b) overshooting macro -> trimmed to shortest winning prefix
+    p_trim = blitz.blitz_macros(
+        {}, 0, [[(1, None), (2, None), (3, None), (4, None), (5, None)]],
+        _clone, _play_seq)
+    ok &= _check("blitz_macros trims to shortest winning prefix",
+                 p_trim == [(1, None), (2, None), (3, None)])
+    #   (c) prefers the shortest winner across several winning macros
+    p_short = blitz.blitz_macros(
+        {}, 0, [[(9, None), (9, None), (3, None)],
+                [(3, None)]], _clone, _play_seq)
+    ok &= _check("blitz_macros prefers shortest winning macro",
+                 p_short == [(3, None)])
+    #   (d) no macro wins -> None (never fabricates)
+    ok &= _check("blitz_macros returns None when no macro wins",
+                 blitz.blitz_macros({}, 0, [[(9, None), (8, None)]],
+                                    _clone, _play_seq) is None)
+
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
 
