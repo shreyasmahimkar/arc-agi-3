@@ -15,9 +15,11 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    `cadence_runner._make_evolve_probe` applies `blitz_K`→BFS budget on the real engine.
    *Remaining:* run a Mac cadence with `V21_EVOLVE_PROBE=1` (+ enough `--bfs-timeout`) so a
    challenger that raises `blitz_K` actually solves a budget-gated wall and PROMOTES.
-2. **Live blitz Stage-0 in `MyAgent`.** Port the "race cheap wins on the fork first" logic
-   (each action once, repeat-action×K, click-each-object) into the live cascade so ft09/vc33
-   depth-1 wins commit with zero wasted actions. *Done when:* ft09 L2–L5 / vc33 L4–L6 are probed.
+2. **Live blitz Stage-0.** [CODED + offline-verified — live effect on next Mac run]
+   `blitz.py` (`blitz_solve` + `blitz_for_solver`) ports "race cheap wins on the fork first"
+   (each action once, repeat-action×K, click-each-object); wired into `cadence_runner.solve_game`
+   as Stage-0 for UNSOLVED levels only (verify + shortest-gated, env `V21_BLITZ`). Commit a962f8c.
+   *Remaining:* a Mac cadence to confirm it commits a cheap win on ft09 L2–L5 / vc33 L4–L6.
 3. **Wire `runtime_coder` as cascade Stage 3.5.** When BFS/graph fail on a level, call the
    local-LLM world-model writer with the observed transitions; commit its shortest verified plan.
    *Done when:* a no-source level is solved by generated code end-to-end on the Mac.
