@@ -195,6 +195,26 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         if sol and _verify(solver, lvl, sol) and (best_len is None or len(sol) < best_len):
             best, best_len, improved = sol, len(sol), True
             corpus[lvl] = sol
+        # Stage-3.5 runtime code-writer (BACKLOG #3): last resort — only for still
+        # UNSOLVED wall levels after blitz + BFS both fail. The local Qwen writes a
+        # WorldModel from the observed transitions and proposes shortest-first plans;
+        # any winner is still verified + shortest-gated below. OFF by default (loads
+        # a local model / adds wall-clock); opt-in via env V21_RUNTIME_CODER=1.
+        if best is None and os.environ.get("V21_RUNTIME_CODER", "0") in ("1", "true", "True"):
+            llm = _get_runtime_llm()
+            if llm is not None:
+                try:
+                    csol = _runtime_coder_for_solver(
+                        solver, lvl, llm,
+                        max_len=int(os.environ.get("V21_RUNTIME_MAXLEN", "200")))
+                except Exception as e:
+                    csol = None
+                    logger.debug("[%s L%d] runtime_coder error: %s", gid, lvl, e)
+                if csol and _verify(solver, lvl, csol):
+                    best, best_len, improved = csol, len(csol), True
+                    corpus[lvl] = csol
+                    logger.info("[%s L%d] RUNTIME_CODER solved in %d actions",
+                                gid, lvl, len(csol))
         if best is None:
             logger.info("[%s L%d] UNSOLVED at budget %ss", gid, lvl, bfs_timeout)
             continue
@@ -215,6 +235,90 @@ def _verify(solver, lvl, sol):
         return bool(solver.verify_solution(lvl, sol))
     except Exception:
         return False
+
+
+# ---- Stage-3.5 runtime code-writer (BACKLOG #3) -------------------------------
+_RUNTIME_LLM = None  # cached across levels/games so we load the local model once
+
+
+def _get_runtime_llm():
+    """Lazily build the local (offline) LLM backend for the runtime code-writer.
+    Cached process-wide. Returns None if a backend can't be built."""
+    global _RUNTIME_LLM
+    if _RUNTIME_LLM is not None:
+        return _RUNTIME_LLM
+    try:
+        from llm_backend import get_backend
+        _RUNTIME_LLM = get_backend(os.environ.get("V21_RUNTIME_LLM"))
+        logger.info("[coder] runtime backend=%s", _RUNTIME_LLM.name)
+    except Exception as e:
+        logger.warning("[coder] backend unavailable: %s", e)
+        _RUNTIME_LLM = None
+    return _RUNTIME_LLM
+
+
+def _runtime_coder_for_solver(solver, level_idx, llm, max_len):
+    """Stage-3.5: when blitz + BFS both fail a wall level, hand the observed
+    transitions to the RuntimeCoder (local Qwen world-model writer). It writes a
+    WorldModel, sandbox-execs it, enumerates SHORTEST-first candidate plans and
+    replays each on a fresh fork; returns the first winning plan (UNVERIFIED — the
+    caller still runs verify_solution + the shortest-plan gate) or None.
+
+    Engine imports are lazy (Mac-only) so `import cadence_runner` stays light.
+    """
+    import runtime_coder as rc
+    from combined_agent import ActionInput, GameAction  # lazy: Mac-only deps
+    import numpy as np
+
+    # --- build the level's TRUE chained start state (reuse the solver's own) ---
+    game, f0 = None, None
+    try:
+        res = solver._make_start_state(level_idx)
+        if res is not None:
+            game, f0 = res
+    except Exception:
+        game = None
+    if game is None:
+        return None
+
+    avail = list(getattr(game, "_available_actions", []) or [])
+    simple = [a for a in avail if a <= 5]
+
+    def _clone(g):
+        return solver._restore(solver._snap(g))
+
+    def _play(g, step):
+        aid, data = step
+        ai = (ActionInput(id=GameAction.from_id(aid), data=data)
+              if data else ActionInput(id=GameAction.from_id(aid)))
+        r = g.perform_action(ai, raw=True)
+        return int(getattr(r, "levels_completed", 0) or 0)
+
+    # --- observations: initial frame + one-step (action -> resulting frame) ---
+    obs = {"level": level_idx, "available_actions": avail,
+           "frame": (f0.tolist() if hasattr(f0, "tolist") else f0),
+           "transitions": []}
+    for aid in simple:
+        try:
+            g = _clone(game)
+            ai = ActionInput(id=GameAction.from_id(aid))
+            r = g.perform_action(ai, raw=True)
+            nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+            obs["transitions"].append({
+                "action": aid,
+                "levels_completed": int(getattr(r, "levels_completed", 0) or 0),
+                "changed": bool(nf is not None and not np.array_equal(nf, f0))})
+        except Exception:
+            continue
+
+    goal = level_idx + 1
+    try_plan = lambda plan: rc.replay_wins(game, plan, _clone, _play, goal)
+    coder = rc.RuntimeCoder(llm, max_len=max_len)
+    try:
+        return coder.solve_level(obs, try_plan)
+    except Exception as e:
+        logger.debug("[coder] L%d runtime solve error: %s", level_idx, e)
+        return None
 
 
 # ---- regression gate (R1.5) ---------------------------------------------------

@@ -40,6 +40,25 @@ def main():
     bad, err = rc._exec_world_model("import os\nclass WorldModel:\n def __init__(s,o):pass", {})
     ok &= _check("sandbox blocks `import os`", bad is None)
 
+    # 5b) Stage-3.5 replay_wins (BACKLOG #3): pure fork-replay over injected
+    #     clone/play closures — the try_plan_fn contract cadence_runner wires in.
+    def _clone(s):
+        return dict(s)
+    def _play_maze(s, step):  # ls20-like: goal after 3 ACTION2 steps
+        aid, _ = step
+        if aid == 2:
+            s["n"] = s.get("n", 0) + 1
+        return 1 if s.get("n", 0) >= 3 else 0
+    ok &= _check("replay_wins: winning plan reaches goal",
+                 rc.replay_wins({}, [(2, None)] * 3, _clone, _play_maze, goal=1) is True)
+    ok &= _check("replay_wins: short plan does NOT win",
+                 rc.replay_wins({}, [(2, None)] * 2, _clone, _play_maze, goal=1) is False)
+    ok &= _check("replay_wins: empty plan -> False",
+                 rc.replay_wins({}, [], _clone, _play_maze, goal=1) is False)
+    _start = {}
+    rc.replay_wins(_start, [(2, None)] * 3, _clone, _play_maze, goal=1)
+    ok &= _check("replay_wins: does not mutate start", _start == {})
+
     # 6) intuition distill + order
     prior = intuition.distill("solutions", "intuition_prior.json")
     ip = intuition.IntuitionPrior("intuition_prior.json")

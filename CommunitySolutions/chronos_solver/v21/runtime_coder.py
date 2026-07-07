@@ -134,6 +134,33 @@ def _refuses_exploit(plan):
     return False
 
 
+def _completed(v):
+    """Coerce a play() return into an int levels_completed (defensive)."""
+    try:
+        return int(v)
+    except Exception:
+        return 0
+
+
+def replay_wins(start, plan, clone, play, goal):
+    """PURE (offline-testable): replay a candidate `plan` on a FRESH fork of
+    `start` and report whether it reaches `goal` levels_completed at any step.
+
+    Mirrors the blitz adapter's clone/play closure contract so the Stage-3.5
+    wiring in cadence_runner can build a `try_plan_fn` for RuntimeCoder without
+    importing the engine here. `start` is never mutated (clone forks first).
+      clone(start)        -> independent fork
+      play(fork, (aid,d)) -> int levels_completed after the action (mutates fork)
+    """
+    if not plan:
+        return False
+    g = clone(start)
+    for step in plan:
+        if _completed(play(g, step)) >= goal:
+            return True
+    return False
+
+
 def _fmt(observations):
     try:
         import numpy as np
