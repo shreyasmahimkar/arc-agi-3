@@ -6,6 +6,26 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-07] **item B1 (Epic B) — wire perception into blitz** — connected the already-DONE
+  `brain/perception.click_targets` scene-graph into the live click-selection path, env-gated OFF.
+  New pure `blitz.merge_click_targets(scan_clicks, frame, use_perception, perception_fn=None)`:
+  fuses v19's engine-scanned ACTION6 targets with perception's connected-component centroids,
+  deduped by (x,y), scan-targets-first (proven default preserved), appending ONLY new component
+  centroids the per-colour-median scan misses — the fix for vc33-style same-colour walls where
+  several separate blobs of one colour collapse to a single median point landing on background.
+  Called from `blitz_for_solver` behind `V21_BRAIN_PERCEPTION` (default OFF → default path byte-
+  identical); any error falls through to scan-only clicks. Runs for UNSOLVED walls only, so zero
+  cost on the solved corpus; every seeded click is still `verify_solution`+shortest-gated by the
+  caller. Reason this cycle: all P0 items are CODED and only await a live Mac probe (blocked on
+  env, not code); B1's remaining wiring is the highest-priority step advanceable purely offline
+  and directly targets a live wall (vc33 L4–L6). Verified: `py_compile` (blitz/test_offline) +
+  `test_offline.py` GREEN with 3 new checks (OFF→scan-only; ON→adds only new coord & dedups;
+  ON→real perception_fn yields both blob coords). Commit 77b5e69 (ls20 guardrail SKIPPED —
+  `arc_agi` not importable in the Linux sandbox; change touches no v19 code or solutions).
+  Expected next Mac run: default behaviour UNCHANGED; set `V21_BRAIN_PERCEPTION=1` so on
+  vc33 L4–L6 blitz probes a click ON each distinct component (not the median between them),
+  giving the click-once / click-repeat tiers the right coords to hammer.
+
 - [2026-07-07] **Epic B kickoff (brain layer)** — architected + scaffolded a cognitively-inspired
   layer on top of the blitz→BFS→runtime_coder cascade, grounded in ARC-AGI-3 world-model research
   (Rodionov 2026 executable world models; WorldCoder; DreamCoder/LILO; H-JEPA). New `BRAIN_

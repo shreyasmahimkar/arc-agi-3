@@ -78,9 +78,11 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
 ## Epic B — phased build (each phase: green py_compile + test_offline, committed, env-gated OFF)
 B1. **Perception scene-graph.** [DONE this session] `brain/perception.py`: connected-component
     objects (colour/size/bbox/centroid), frame-diff, and ACTION6 `click_targets` (one per
-    component — fixes v19's per-colour-median clicks). 6 offline checks. *Remaining:* wire
-    `click_targets` into `blitz`/BFS click selection behind `V21_BRAIN_PERCEPTION` on a Mac
-    cadence (helps vc33 L4–L6).
+    component — fixes v19's per-colour-median clicks). 6 offline checks. [WIRED — env-gated,
+    offline-verified] `blitz.merge_click_targets` fuses perception centroids with the scanned
+    clicks (scan-first, deduped) in `blitz_for_solver` behind `V21_BRAIN_PERCEPTION` (default OFF);
+    +3 offline checks; commit 77b5e69. *Remaining:* a Mac cadence with `V21_BRAIN_PERCEPTION=1` to
+    confirm per-component click coords crack a vc33 L4–L6 wall the median-scan misses.
 B2. **Executable world-model persistence + verifier.** [PARTIAL — `brain/world_model.py` verifier
     core + template DONE] Generalise `runtime_coder` to a per-game model on disk
     (`brain/wm/<game>/`) that must reproduce recorded transitions (`verify_model`, `is_trusted`);
