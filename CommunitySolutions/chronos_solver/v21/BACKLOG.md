@@ -20,13 +20,20 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    (each action once, repeat-action×K, click-each-object); wired into `cadence_runner.solve_game`
    as Stage-0 for UNSOLVED levels only (verify + shortest-gated, env `V21_BLITZ`). Commit a962f8c.
    *Remaining:* a Mac cadence to confirm it commits a cheap win on ft09 L2–L5 / vc33 L4–L6.
-3. **Wire `runtime_coder` as cascade Stage 3.5.** When BFS/graph fail on a level, call the
-   local-LLM world-model writer with the observed transitions; commit its shortest verified plan.
-   *Done when:* a no-source level is solved by generated code end-to-end on the Mac.
+3. **Wire `runtime_coder` as cascade Stage 3.5.** [CODED + offline-verified — live effect on
+   next Mac run] `cadence_runner._runtime_coder_for_solver` builds obs from `_make_start_state`
+   + one-step transitions and calls `RuntimeCoder.solve_level` with a fork-replay `try_plan`
+   (`runtime_coder.replay_wins`); wired into `solve_game` as the LAST stage for UNSOLVED walls
+   only, env `V21_RUNTIME_CODER` (default OFF). Verify + shortest-gate + exploit-refusal all
+   preserved. Commit cc493d7. *Remaining:* a Mac cadence with `V21_RUNTIME_CODER=1` (local Qwen
+   pulled) that solves a BFS/blitz-blocked wall end-to-end via generated code.
 
 ## P1 — crack the walls
 4. **ls20 L5–L6 (LADDER / Go-Explore).** Variant re-root + TTRL suffix-BFS from the L4 end state.
-   *Done when:* L5 registers `levels_completed>=6` on the live engine.
+   [PARTIAL — offline Go-Explore seed CODED] `blitz.blitz_macros` replays solved sibling-level
+   plans (shortest winning prefix) as a Tier-0 wall seed, wired into `blitz_for_solver`. Commit
+   9f69b20. *Remaining:* suffix-BFS from the L4 end state on the live engine; a Mac cadence to
+   confirm a sibling macro (or seeded BFS) registers `levels_completed>=6`.
 5. **ft09 L2–L5.** Investigate mechanics (these aren't blind like L0); deepen BFS/graph budget,
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in
@@ -34,10 +41,14 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
 
 ## P2 — optimality & generalization
 7. **ls20 L1 tighten 45→≤41** (only sub-1.0 solve). Masked/A* BFS or suffix trim. *Done when:* RHAE(L1)=1.0.
+   [DONE] Corpus `solutions/ls20.json` L1 is 41 actions → RHAE(L1)=1.0 as of Mac run 20260706T194329Z.
 8. **Trained intuition prior.** Replace corpus-frequency prior with a small policy net over
    frame features; keep the `order_actions` interface. *Done when:* held-out solve-rate improves.
 9. **Cross-game macro retrieval (Stage 1b).** Use `intuition`/macro bank to seed BFS on a
    *similar* held-out game. *Done when:* a macro from one game solves a level of another.
+   [PARTIAL — within-game macro replay CODED] `blitz.blitz_macros` replays a solved level's plan
+   on another (wall) level of the SAME game (commit 9f69b20). *Remaining:* extend the macro source
+   to `v21_macro_bank.json` / cross-GAME retrieval and seed BFS (not just full-plan replay).
 
 ## P3 — infra / submission
 10. **Stall alarm.** Reporter pings if no cron_*.log in 8h.

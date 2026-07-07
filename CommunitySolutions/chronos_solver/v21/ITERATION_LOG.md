@@ -6,6 +6,44 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-07] **item #4/#9 (P1/P2)** — Blitz MACRO-REPLAY tier (Go-Explore seed). Added pure
+  `blitz.blitz_macros(start, target_level, macros, clone, play)`: replays each ALREADY-SOLVED
+  sibling-level plan on a fresh fork of the wall level and returns the SHORTEST winning PREFIX
+  (macros can overshoot the goal), or None — the cheapest Go-Explore seed there is, since a
+  game's levels usually share mechanics so a sibling's verified solution can transfer verbatim
+  with ZERO search. Wired into `blitz_for_solver` as Tier-0 (runs before the depth-1/repeat/click
+  search): harvests macros from `solver.solutions` for every solved level ≠ the target, tries
+  them first, falls through to `blitz_solve` if none win. Pure/offline-safe (injected closures);
+  `blitz_solve` untouched (no regression to its 4 checks). Every returned plan is still routed
+  through `verify_solution` + the shortest-plan corpus gate and `_refuses_exploit` by the caller —
+  macros only PROPOSE. Runs only for UNSOLVED wall levels, so zero added cost on the solved corpus.
+  Verified: `py_compile` (blitz/cadence_runner/test_offline) + `test_offline.py` GREEN with 4 new
+  `blitz_macros` checks (sibling-plan win / overshoot→shortest-prefix trim / prefers-shortest /
+  no-win→None). Commit 9f69b20 (ls20 guardrail SKIPPED — `arc_agi` not importable in the Linux
+  sandbox; change touches no v19 code or ls20 solutions). Expected next Mac run: default behavior
+  UNCHANGED on the solved corpus; for ft09 L2–L5 / vc33 L4–L6 / ls20 L5–L6, if a solved sibling's
+  plan happens to win the wall, it commits in ~ms before BFS/blitz-search runs. Also NOTE: ls20 L1
+  is already at 41 actions (RHAE 1.0) in the corpus from the last Mac run, so BACKLOG #7 is met.
+
+- [2026-07-07] **item #3 (P0)** — Wire `runtime_coder` as cascade Stage-3.5. Added pure
+  `runtime_coder.replay_wins(start, plan, clone, play, goal)` (fork-and-replay over injected
+  closures; never mutates start) — the `try_plan_fn` contract the wiring needs. Added
+  `cadence_runner._runtime_coder_for_solver(solver, lvl, llm, max_len)`: builds the level's
+  TRUE chained start via `solver._make_start_state`, gathers observations (initial frame +
+  one-step action→delta transitions), and hands them to `RuntimeCoder.solve_level` with a
+  fork-replay `try_plan`; engine imports lazy (Mac-only). Wired into `solve_game` as the LAST
+  cascade stage — runs ONLY when a wall level is still UNSOLVED after blitz + BFS. Backend built
+  once via cached `_get_runtime_llm()` (local offline `get_backend`, honors `V21_RUNTIME_LLM`).
+  OFF by default (loads a local model / adds wall-clock); opt-in via `V21_RUNTIME_CODER=1`
+  (`V21_RUNTIME_MAXLEN`=200). Any error falls through; every returned plan still passes
+  `verify_solution` + the shortest-plan corpus gate, and `_refuses_exploit` blocks null-coord
+  ACTION6. Verified: `py_compile` (runtime_coder/cadence_runner/test_offline) + `test_offline.py`
+  GREEN with 4 new `replay_wins` checks (win / short-plan-no-win / empty→False / no-mutation).
+  Commit cc493d7 (ls20 guardrail SKIPPED — `arc_agi` not importable in the Linux sandbox; change
+  touches no v19 code or ls20 solutions). Expected next Mac run: default behavior UNCHANGED; set
+  `V21_RUNTIME_CODER=1` (with the local Qwen pulled) so BFS/blitz-blocked walls (ft09 L2–L5 /
+  vc33 L4–L6 / ls20 L5–L6) get a generated-WorldModel plan committed if one wins.
+
 - [2026-07-06] **item #2 (P0)** — Blitz Stage-0 pre-pass. New `blitz.py`: pure
   `blitz_solve(start, target_level, simple_actions, click_targets, clone, play, repeat_K)`
   that races the cheap shallow wins on a fork — (1) each simple action once, (2) each
@@ -48,10 +86,14 @@ builds on prior attempts instead of repeating them. Format:
 - [2026-07-06] **seed** — corpus seeded from v20 (ls20 L0–L4, ft09 L0–L1, vc33 L0–L3); official
   baselines wired; RHAE floor measured (ls20 0.966, ft09 1.0, vc33 1.0; 9 wall levels).
 
-## Next up (from BACKLOG P0): item #3 — wire `runtime_coder` as cascade Stage-3.5 (call
-## the local-LLM world-model writer on levels BFS/graph/blitz all fail, commit its
-## shortest verified plan). Blockers/pending Mac-side steps: (a) item #2 blitz is coded +
-## offline-verified — its live effect on ft09 L2–L5 / vc33 L4–L6 shows on the next Mac
-## cadence; (b) item #1 evolve probe still needs `V21_EVOLVE_PROBE=1` on the Mac to
-## PROMOTE; (c) ENV: Ollama returned HTTP 500 last run (model likely not pulled) — evolve
-## stays skipped until the user fixes their local Ollama.
+## Next up: all of P0 (#1 evolve probe, #2 blitz, #3 runtime_coder) is now CODED +
+## offline-verified — the loop is fully cascaded (blitz → BFS → runtime_coder) and only
+## needs live Mac cadences (with the right env flags) to prove wall-cracking. The next
+## between-rounds cycle should move to P2 optimality (#7: ls20 L1 45→≤41 suffix-trim — a
+## pure-offline-safe win) or P1 wall analysis (#4/#5/#6), building on any new Mac scorecard.
+## Blockers/pending Mac-side steps: (a) item #3 runtime_coder: set `V21_RUNTIME_CODER=1`
+## with a local Qwen pulled to attack BFS/blitz-blocked walls; (b) item #2 blitz: live
+## effect on ft09 L2–L5 / vc33 L4–L6 shows on the next Mac cadence; (c) item #1 evolve
+## probe still needs `V21_EVOLVE_PROBE=1` (+ adequate `--bfs-timeout`) to PROMOTE; (d) ENV:
+## Ollama returned HTTP 500 last run (model likely not pulled) — evolve stays skipped until
+## the user pulls/fixes their local Ollama (or points backend at the local Qwen HF model).
