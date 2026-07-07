@@ -6,6 +6,26 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-07] **item #4 (P1) — reserve BFS budget for walls: stop re-solving corpus levels** —
+  Mac run 20260707T220311Z (budget=1200s, model=qwen2.5-coder:7b-instruct-q4_K_M) IMPROVED over
+  160000Z: ls20 L4 now SOLVED (43 actions, rhae 1.0; was a 600s timeout last run), also 1 shorter
+  than the corpus L4 (44). This confirms the pending budget-raise (5d48138) + 7B model fix
+  (0659668). BUT the run exposed the real ls20 L5/L6 blocker: `solve_game` ran a fresh full BFS on
+  EVERY level incl. the already-solved L0–L4, which burned 3.4+25.4+163.8+448+1045.8 ≈ 1686s before
+  L5 even started — so L5 (the wall) got ~0 budget. Since every solved ls20/ft09/vc33 level is
+  already at RHAE 1.0 (BFS can't beat 1.0), re-deriving them each run is pure waste. Fix: added pure
+  `cadence_runner._should_resolve(already_solved, env)` and gated the fresh `solver.solve_level`
+  call on it — solved+verified corpus levels replay (verify only) and SKIP the re-BFS by default;
+  unsolved walls always run BFS; `V21_RESOLVE_SOLVED=1` re-enables the optimality hunt (for a future
+  sub-1.0 solve / R4 shortening). Corpus untouched (best stays the verified plan); one focused change
+  in `v21/cadence_runner.py` only, no v19/v20 touched. Verified: `py_compile`
+  (cadence_runner/test_offline) + `test_offline.py` GREEN with 4 new `_should_resolve` checks
+  (unsolved→True, solved→False default, flag→True, unsolved+flag→True). Commit <hash>. ls20
+  guardrail SKIPPED (`arc_agi` not importable in the Linux sandbox; change touches no v19 code or
+  ls20 solutions). Expected next Mac run: L0–L4 replay in seconds, so ls20 BFS reaches L5 with the
+  full per-level budget intact — first real shot at the L5 wall (pair with V21_RUNTIME_CODER=1 /
+  Go-Explore item #4 for the depth L5 needs beyond plain BFS).
+
 - [2026-07-07] **regression fix (P0) — hard wall-clock deadline on OllamaBackend.complete** —
   the 16:00Z (160000Z) Mac run STALLED: its cron log stops at `[coder] runtime backend=ollama`
   (ls20 L4, V21_RUNTIME_CODER on) and never advanced for 2.5h — no scorecard, no last_summary,

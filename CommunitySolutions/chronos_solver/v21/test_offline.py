@@ -341,6 +341,19 @@ def main():
                  GO.goal_reached_by_progress(1, 2) is True
                  and GO.goal_reached_by_progress(2, 2) is False)
 
+    # 11) budget-reserve gate: solved+verified corpus levels must NOT trigger a
+    #     fresh BFS re-search by default (they'd steal the wall budget), but unsolved
+    #     walls always do, and V21_RESOLVE_SOLVED=1 re-enables the optimality hunt.
+    import cadence_runner as cr
+    ok &= _check("resolve gate: unsolved level always re-solved",
+                 cr._should_resolve(False, env={}) is True)
+    ok &= _check("resolve gate: solved level skipped by default",
+                 cr._should_resolve(True, env={}) is False)
+    ok &= _check("resolve gate: V21_RESOLVE_SOLVED=1 re-solves solved level",
+                 cr._should_resolve(True, env={"V21_RESOLVE_SOLVED": "1"}) is True)
+    ok &= _check("resolve gate: unsolved level solved even with flag on",
+                 cr._should_resolve(False, env={"V21_RESOLVE_SOLVED": "1"}) is True)
+
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
 

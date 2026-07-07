@@ -134,6 +134,20 @@ def harvest_macros(gid, corpus, bank):
 
 
 # ---- solve one game (uses v19 BFSSolver read-only) ----------------------------
+def _should_resolve(already_solved, env=None):
+    """Whether to run a fresh (expensive) BFS re-search on this level.
+
+    Unsolved (wall) levels ALWAYS get a BFS pass. Levels already solved+verified
+    from the corpus are skipped by default — they're at their measured RHAE and a
+    fresh BFS cannot improve them, so re-solving only steals the per-level budget
+    from the real walls. Set V21_RESOLVE_SOLVED=1 to re-enable the optimality hunt
+    on solved levels (e.g. to shorten a sub-1.0 solve). Pure/offline-testable."""
+    env = os.environ if env is None else env
+    if not already_solved:
+        return True
+    return env.get("V21_RESOLVE_SOLVED", "0") in ("1", "true", "True")
+
+
 def solve_game(gid, bfs_timeout, BFSSolver):
     """Escalating single-pass solve: for each level, keep the SHORTEST verified
     plan (existing corpus vs a fresh BFS). Returns (rows, new_corpus, improved)."""
@@ -168,8 +182,10 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # verify the existing plan still holds on this engine version (R5.3)
         if prev and _verify(solver, lvl, prev):
             best, best_len = prev, prev_len
+            already_solved = True
         else:
             best, best_len = None, None
+            already_solved = False
         # Stage-0 blitz pre-pass (BACKLOG #2): only for UNSOLVED (wall) levels —
         # solved levels already have a verified corpus plan, so this adds ZERO
         # cost there. Cheap depth-1 / repeat-K wins crack reflex/orchestration
@@ -186,12 +202,26 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = bsol, len(bsol), True
                 corpus[lvl] = bsol
                 logger.info("[%s L%d] BLITZ solved in %d actions", gid, lvl, len(bsol))
-        # attempt a fresh (optimal-preferring) solve
-        try:
-            sol = solver.solve_level(lvl)  # v19 'auto' ladder, shortest-first
-        except Exception as e:
+        # attempt a fresh (optimal-preferring) solve — BUT skip the expensive
+        # re-search on levels already solved+verified from the corpus. Those are
+        # already at their measured RHAE (every current ls20/ft09/vc33 solved level
+        # is at 1.0, which BFS cannot beat) so re-deriving them each run just burns
+        # the per-level BFS wall-clock — e.g. ls20 L0–L4 consumed ~1686s of the 1200s
+        # budget in run 20260707T220311Z, leaving ~0 for the real wall L5. Reserving
+        # the budget lets the FIRST unsolved wall get a full BFS pass. Re-enable the
+        # optimality hunt on solved levels with V21_RESOLVE_SOLVED=1 (e.g. to shorten
+        # a sub-1.0 solve for the R4 quadratic-RHAE gain). Corpus is untouched: the
+        # verified plan is still `best`, and unsolved levels always run BFS.
+        if not _should_resolve(already_solved):
             sol = None
-            logger.debug("[%s L%d] solve error: %s", gid, lvl, e)
+            logger.info("[%s L%d] corpus-verified (%s actions) — skip re-BFS, "
+                        "budget reserved for walls", gid, lvl, best_len)
+        else:
+            try:
+                sol = solver.solve_level(lvl)  # v19 'auto' ladder, shortest-first
+            except Exception as e:
+                sol = None
+                logger.debug("[%s L%d] solve error: %s", gid, lvl, e)
         if sol and _verify(solver, lvl, sol) and (best_len is None or len(sol) < best_len):
             best, best_len, improved = sol, len(sol), True
             corpus[lvl] = sol

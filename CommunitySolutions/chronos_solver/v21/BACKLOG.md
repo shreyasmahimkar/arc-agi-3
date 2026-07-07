@@ -34,6 +34,12 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    plans (shortest winning prefix) as a Tier-0 wall seed, wired into `blitz_for_solver`. Commit
    9f69b20. *Remaining:* suffix-BFS from the L4 end state on the live engine; a Mac cadence to
    confirm a sibling macro (or seeded BFS) registers `levels_completed>=6`.
+   [BUDGET-RESERVE DONE 2026-07-07] `cadence_runner._should_resolve` now skips re-BFS of
+   already-solved+verified corpus levels (env `V21_RESOLVE_SOLVED`, default OFF), so L0–L4 replay
+   in seconds and the ls20 BFS reaches L5 with the full per-level budget instead of ~0 (run
+   220311Z burned ~1686s re-solving L0–L4 before L5 even started). See ITERATION_LOG for commit.
+   *Still needed for the win:* L5 depth exceeds plain BFS — pair the reserved budget with
+   `V21_RUNTIME_CODER=1` (Go-Explore/coder) or a seeded suffix-BFS from the L4 end state.
 5. **ft09 L2–L5.** Investigate mechanics (these aren't blind like L0); deepen BFS/graph budget,
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in
