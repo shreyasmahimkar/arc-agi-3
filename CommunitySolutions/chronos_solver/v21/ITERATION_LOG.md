@@ -6,6 +6,21 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-07] **regression fix (P0) — hard wall-clock deadline on OllamaBackend.complete** —
+  the 16:00Z (160000Z) Mac run STALLED: its cron log stops at `[coder] runtime backend=ollama`
+  (ls20 L4, V21_RUNTIME_CODER on) and never advanced for 2.5h — no scorecard, no last_summary,
+  ft09/vc33 never ran (a completion regression vs the 13:00Z run which finished all 3 games).
+  Root cause: `urllib`'s `timeout=600` is a per-socket-op inactivity timeout, NOT a total
+  deadline, so a swapping/OOM 7B model can hold the HTTP connection open indefinitely. Fix:
+  extracted `_complete_raw` and ran it in a daemon watchdog thread with `join(deadline)`; on
+  expiry `complete` RAISES (env `V21_OLLAMA_DEADLINE`, default 180s, 5s floor). RuntimeCoder
+  already catches `llm.complete` exceptions → degrades to safety-net plans and the cadence
+  continues to the next game. Edited only `v21/llm_backend.py` (+`test_offline.py`); no v19
+  code or solutions touched. Verified: `py_compile` green + `test_offline.py` green with 2 new
+  checks (hung backend raises; bounded <10s, not the 60s stall). Expected next Mac run: even if
+  Ollama is unhealthy, the run COMPLETES and writes a scorecard for all 3 games again (corpus
+  preserved) instead of hanging on ls20's coder step.
+
 - [2026-07-07] **item B1 (Epic B) — wire perception into blitz** — connected the already-DONE
   `brain/perception.click_targets` scene-graph into the live click-selection path, env-gated OFF.
   New pure `blitz.merge_click_targets(scan_clicks, frame, use_perception, perception_fn=None)`:

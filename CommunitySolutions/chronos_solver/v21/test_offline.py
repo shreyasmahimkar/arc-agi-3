@@ -24,6 +24,22 @@ def main():
     # 2) mock backend auto-selects offline
     ok &= _check("backend auto -> mock (offline)", lb.get_backend().name == "mock")
 
+    # 2b) OllamaBackend hard deadline: a hung request must RAISE (never stall the
+    #     cadence) within ~the deadline, so the coder can fall back to safety nets.
+    import time as _time
+    _olla = lb.OllamaBackend()
+    os.environ["V21_OLLAMA_DEADLINE"] = "5"  # 5s is the enforced floor
+    _olla._complete_raw = lambda *a, **k: _time.sleep(60) or "never"  # simulate a stall
+    _t0 = _time.time()
+    try:
+        _olla.complete("hi"); _raised = False
+    except Exception:
+        _raised = True
+    _elapsed = _time.time() - _t0
+    ok &= _check("ollama deadline raises on hang", _raised)
+    ok &= _check("ollama deadline bounded (<10s, not the 60s stall)", _elapsed < 10.0)
+    os.environ.pop("V21_OLLAMA_DEADLINE", None)
+
     # 3) runtime code-writer: write -> sandbox-exec -> plan -> win (ft09-like + ls20-like)
     coder = rc.RuntimeCoder(lb.get_backend())
     w1 = coder.solve_level({"note": "blind"}, lambda p: len(p) == 1 and p[0][0] == 6)

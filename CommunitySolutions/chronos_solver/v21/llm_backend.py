@@ -112,7 +112,21 @@ class OllamaBackend(LLMBackend):
             return False
         # server up AND the requested model actually pulled (":latest" tolerant)
         return any(t == self.model or t.split(":")[0] == self.model.split(":")[0] for t in tags)
-    def complete(self, prompt, system=None, max_tokens=1024, temperature=0.2, stop=None):
+    @staticmethod
+    def _deadline():
+        """Hard wall-clock cap (seconds) for ONE completion. A stalled/swapping
+        Ollama (e.g. a 7B model thrashing on a 16GB Mac) can hold an HTTP
+        connection open indefinitely — urllib's `timeout` is a per-socket-op
+        inactivity timeout, NOT a total deadline, so it never trips while the
+        server dribbles keepalives. This cap is enforced in a watchdog thread so
+        the runtime coder ALWAYS returns control to the cadence (which then falls
+        back to safety-net plans and moves on to the next game). Env-tunable."""
+        try:
+            return max(5.0, float(os.environ.get("V21_OLLAMA_DEADLINE", "180")))
+        except Exception:
+            return 180.0
+
+    def _complete_raw(self, prompt, system, max_tokens, temperature, stop, sock_timeout):
         import urllib.request, urllib.error
         msgs = ([{"role": "system", "content": system}] if system else []) + \
                [{"role": "user", "content": prompt}]
@@ -124,7 +138,7 @@ class OllamaBackend(LLMBackend):
                                      data=json.dumps(body).encode(),
                                      headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=600) as r:
+            with urllib.request.urlopen(req, timeout=sock_timeout) as r:
                 return json.loads(r.read())["message"]["content"]
         except urllib.error.HTTPError as e:
             if e.code == 404:
@@ -136,6 +150,34 @@ class OllamaBackend(LLMBackend):
                     f"Ollama 404 for model '{self.model}'. Pulled models: {have or 'none'}. "
                     f"Run:  ollama pull {self.model}") from e
             raise
+
+    def complete(self, prompt, system=None, max_tokens=1024, temperature=0.2, stop=None):
+        """Run the Ollama request under a hard wall-clock deadline in a watchdog
+        thread. On timeout we RAISE (never hang) so the caller's except-branch
+        degrades gracefully; the abandoned request finishes/dies in its daemon
+        thread without blocking the cadence."""
+        import threading
+        deadline = self._deadline()
+        result, error = [], []
+
+        def _work():
+            try:
+                result.append(self._complete_raw(
+                    prompt, system, max_tokens, temperature, stop, sock_timeout=deadline))
+            except BaseException as e:  # noqa: BLE001 — surfaced to the main thread
+                error.append(e)
+
+        t = threading.Thread(target=_work, name="ollama-complete", daemon=True)
+        t.start()
+        t.join(deadline)
+        if t.is_alive():
+            raise RuntimeError(
+                f"Ollama completion exceeded hard deadline {deadline:.0f}s "
+                f"(model '{self.model}' likely OOM/swapping). Skipping this coder "
+                f"attempt; set V21_OLLAMA_DEADLINE to tune or use a smaller model.")
+        if error:
+            raise error[0]
+        return result[0] if result else ""
 
 
 class MockBackend(LLMBackend):
