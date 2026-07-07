@@ -19,6 +19,7 @@
 # =====================================================================
 import argparse, glob, json, logging, os, re, socket, sys, time, fcntl
 from datetime import datetime, timezone
+import blitz  # Stage-0 cheap-win pre-pass (BACKLOG #2); pure, no engine deps
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHRONOS = os.path.abspath(os.path.join(HERE, ".."))          # .../chronos_solver
@@ -169,6 +170,22 @@ def solve_game(gid, bfs_timeout, BFSSolver):
             best, best_len = prev, prev_len
         else:
             best, best_len = None, None
+        # Stage-0 blitz pre-pass (BACKLOG #2): only for UNSOLVED (wall) levels —
+        # solved levels already have a verified corpus plan, so this adds ZERO
+        # cost there. Cheap depth-1 / repeat-K wins crack reflex/orchestration
+        # walls that BFS times out on. Fully guarded; any error falls through to
+        # BFS. The candidate is still verified + shortest-gated below.
+        if best is None and os.environ.get("V21_BLITZ", "1") not in ("0", "false", "False"):
+            try:
+                bsol = blitz.blitz_for_solver(
+                    solver, lvl, repeat_K=int(os.environ.get("V21_BLITZ_K", "200")))
+            except Exception as e:
+                bsol = None
+                logger.debug("[%s L%d] blitz error: %s", gid, lvl, e)
+            if bsol and _verify(solver, lvl, bsol):
+                best, best_len, improved = bsol, len(bsol), True
+                corpus[lvl] = bsol
+                logger.info("[%s L%d] BLITZ solved in %d actions", gid, lvl, len(bsol))
         # attempt a fresh (optimal-preferring) solve
         try:
             sol = solver.solve_level(lvl)  # v19 'auto' ladder, shortest-first

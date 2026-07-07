@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+# =====================================================================
+# Chronos v21 — Blitz Stage-0 (BACKLOG #2)
+#
+# "Race cheap wins on a fork first." Before spending the full BFS budget on a
+# level, try the small handful of trivially-shallow plans that crack many
+# reflex/orchestration levels with ZERO wasted actions:
+#   (1) each simple action once            (length-1 plan)
+#   (2) each click target once (ACTION6)   (length-1 plan)
+#   (3) repeat a single action ×K          (shortest k that wins)
+#
+# The core `blitz_solve` is PURE — it takes injected `clone`/`play` closures and
+# a list of candidate actions, so it is fully offline-testable with a mock game
+# (no arcengine / numpy / torch import). `blitz_for_solver` is the thin adapter
+# that binds it to v19's read-only `BFSSolver` on the Mac; its engine imports are
+# lazy so `import blitz` stays dependency-free.
+#
+# Every plan this returns is still routed through `BFSSolver.verify_solution`
+# and the shortest-plan corpus gate by the caller — blitz only PROPOSES.
+# =====================================================================
+
+
+def blitz_solve(start_game, target_level, simple_actions, click_targets,
+                clone, play, repeat_K=200):
+    """Shortest cheap winning plan for `target_level`, or None.
+
+    Args:
+      start_game:     game object already positioned at the level's start state.
+      target_level:   level index we want completed (win == levels_completed
+                      reaching target_level + 1).
+      simple_actions: iterable of directional/interact action ids (e.g. 1..5).
+      click_targets:  iterable of ACTION6 `data` dicts (e.g. {'x':.,'y':.}).
+      clone(game):    -> an independent deep copy (a fresh fork each try).
+      play(game,(aid,data)) -> int levels_completed AFTER performing the action
+                      on `game` (MUTATES game; caller passes a fork).
+      repeat_K:       max repeats to try for the repeat-action tier.
+
+    Returns the shortest plan `[(aid, data), ...]` whose replay reaches the goal,
+    preferring length-1 wins. Pure: no engine/network/global state.
+    """
+    goal = target_level + 1
+    simple_actions = list(simple_actions or [])
+    click_targets = list(click_targets or [])
+
+    # Tier 1a: each simple action once (length-1 — can't be beaten, return now).
+    for aid in simple_actions:
+        g = clone(start_game)
+        if _completed(play(g, (aid, None))) >= goal:
+            return [(aid, None)]
+
+    # Tier 1b: each click target once (also length-1).
+    for data in click_targets:
+        g = clone(start_game)
+        if _completed(play(g, (6, data))) >= goal:
+            return [(6, data)]
+
+    # Tier 2: repeat a single action up to K times; keep the shortest winner.
+    best = None
+    for aid in simple_actions:
+        g = clone(start_game)
+        for k in range(1, repeat_K + 1):
+            if _completed(play(g, (aid, None))) >= goal:
+                if best is None or k < len(best):
+                    best = [(aid, None)] * k
+                break
+    return best
+
+
+def _completed(v):
+    """Coerce a play() return into an int levels_completed (defensive)."""
+    try:
+        return int(v)
+    except Exception:
+        return 0
+
+
+# --------------------------------------------------------------------------
+# Solver adapter (Mac-only). Kept out of module import so the offline test can
+# `import blitz` without arcengine / numpy present.
+# --------------------------------------------------------------------------
+def blitz_for_solver(solver, level_idx, repeat_K=200):
+    """Run blitz Stage-0 against a loaded v19 `BFSSolver` for `level_idx`.
+
+    Builds the level's TRUE chained start state (reusing the solver's own
+    `_make_start_state`), enumerates candidate simple actions + effective click
+    targets via the solver's `_scan_actions`, then delegates to `blitz_solve`.
+    Returns a candidate plan (UNVERIFIED — the caller verifies) or None.
+    """
+    from combined_agent import ActionInput, GameAction  # lazy: Mac-only deps
+    import numpy as np
+
+    # --- build the start state (chained for lvl>0, fresh reset for lvl 0) ---
+    game, f0 = None, None
+    try:
+        res = solver._make_start_state(level_idx)
+        if res is not None:
+            game, f0 = res
+    except Exception:
+        game = None
+    if game is None:
+        game = solver.game_cls()
+        game.set_level(level_idx)
+        game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+        r0 = game.perform_action(ActionInput(id=GameAction.RESET), raw=True)
+        if not r0.frame:
+            return None
+        f0 = np.array(r0.frame[-1])
+
+    avail = list(getattr(game, "_available_actions", []) or [])
+    simple = [a for a in avail if a <= 5]
+
+    # Effective ACTION6 click targets (dedup by resulting-frame effect) reuse
+    # the solver's scan so we only probe clicks that actually change something.
+    clicks = []
+    if 6 in avail:
+        try:
+            bg = int(np.bincount(f0.flatten(), minlength=16).argmax())
+            for a, d in solver._scan_actions(game, f0, bg):
+                if a == 6 and d is not None:
+                    clicks.append(d)
+        except Exception:
+            clicks = []
+
+    def _clone(g):
+        return solver._restore(solver._snap(g))
+
+    def _play(g, step):
+        aid, data = step
+        ai = (ActionInput(id=GameAction.from_id(aid), data=data)
+              if data else ActionInput(id=GameAction.from_id(aid)))
+        r = g.perform_action(ai, raw=True)
+        return int(getattr(r, "levels_completed", 0) or 0)
+
+    return blitz_solve(game, level_idx, simple, clicks, _clone, _play,
+                       repeat_K=repeat_K)

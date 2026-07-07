@@ -13,7 +13,7 @@ def main():
     import tempfile
     _HIST = os.path.join(tempfile.gettempdir(), "v21_test_evolution_history.jsonl")
     # 1) all modules import + compile
-    for m in ("llm_backend", "runtime_coder", "intuition", "evolve", "cadence_runner"):
+    for m in ("llm_backend", "runtime_coder", "intuition", "evolve", "blitz", "cadence_runner"):
         try:
             importlib.import_module(m); ok &= _check(f"import {m}", True)
         except Exception as e:
@@ -85,6 +85,43 @@ def main():
         ["ft09"], ["cn04"], n=2)
     ok &= _check("cfg-eval promotes a blitz_K challenger that cracks a wall", promoted2 is True)
     evolve.save_champion("champion.json", _c0)  # restore seed champion (no side effects)
+
+    # 9) blitz Stage-0 (BACKLOG #2): pure cheap-win search over injected closures
+    import blitz
+    def _clone(s):
+        return dict(s)
+    #   (a) single-action win -> length-1 plan (action 3 wins immediately)
+    def _play_single(s, step):
+        aid, _ = step
+        if aid == 3:
+            s["won"] = True
+        return 1 if s.get("won") else 0
+    p_single = blitz.blitz_solve({}, 0, [1, 2, 3, 4], [], _clone, _play_single, repeat_K=50)
+    ok &= _check("blitz solves single-action (length-1)", p_single == [(3, None)])
+
+    #   (b) repeat-action win -> shortest k (ls20-like: repeat ACTION2 ×4)
+    def _play_repeat(s, step):
+        aid, _ = step
+        if aid == 2:
+            s["n"] = s.get("n", 0) + 1
+        return 1 if s.get("n", 0) >= 4 else 0
+    p_rep = blitz.blitz_solve({}, 0, [1, 2, 3], [], _clone, _play_repeat, repeat_K=50)
+    ok &= _check("blitz solves repeat-action (shortest k=4)", p_rep == [(2, None)] * 4)
+
+    #   (c) click-target win -> the correct ACTION6 coord (vc33-like)
+    def _play_click(s, step):
+        aid, data = step
+        if aid == 6 and data == {"x": 5, "y": 5}:
+            s["won"] = True
+        return 1 if s.get("won") else 0
+    p_click = blitz.blitz_solve({}, 0, [1, 2], [{"x": 1, "y": 1}, {"x": 5, "y": 5}],
+                                _clone, _play_click)
+    ok &= _check("blitz solves click-target (correct ACTION6 coord)",
+                 p_click == [(6, {"x": 5, "y": 5})])
+
+    #   (d) no cheap win -> None (never fabricates a plan)
+    ok &= _check("blitz returns None when no cheap win exists",
+                 blitz.blitz_solve({}, 0, [1, 2], [], _clone, lambda s, x: 0, repeat_K=10) is None)
 
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
