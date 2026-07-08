@@ -6,6 +6,27 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08 20:05Z] **R13/R7 — iterative teach-with-feedback for the Opus teacher (V21_OPUS_ROUNDS)** —
+  HEALTH: runner HEALTHY/RUNNING — newest cron 194224Z started 19:42Z, actively in ls20 L6 BFS (last log
+  line 19:58Z, <5m ago, within the 600s budget); prior run 175324Z finished clean. NEW SIGNAL this run:
+  the Opus teacher FIRED for the first time on the Mac — `[ls20 L5] opus teacher proposed a 19-action
+  plan` then UNSOLVED (plan failed verify, discarded), and `toddler harvest: +4 samples`. Root cause of
+  the near-miss: the teacher is SINGLE-SHOT — a plan that fails verification is thrown away, so the
+  strongest signal (how far it got) is lost. WHAT: added `OpusTeacher.solve_wall_iterative(...,try_plan,
+  max_rounds)` + pure `_augment_notes` in brain/teacher.py — propose → caller EXECUTE+VERIFY via
+  `try_plan(plan)->(solved,feedback)` → on failure fold the engine's failure report back into the next
+  prompt as a bounded negative-constraint counterexample (R7 textual gradient) and re-ask. Wired into
+  `cadence_runner._opus_teacher_for_solver` with a fork-replay closure `_replay_feedback` (reports
+  `reached levels_completed=X of goal Y after N/M actions; first no-op at index K`; fork-only, never
+  mutates the run, lazy engine imports). Env `V21_OPUS_ROUNDS` (default 2; =1 restores old single-shot).
+  VERIFIED: py_compile (teacher/cadence_runner/test_teacher) + test_teacher (18 checks incl. round-2
+  return, feedback-fed-into-round-2, short-circuit-on-success, exhaust→None, no-key no-op) + test_offline
+  + test_blackboard all GREEN. Corpus + offline guard untouched (teacher stays env-gated OFF; no key ⇒
+  no-op). EXPECTED NEXT RUN: with `V21_OPUS_TEACHER=1` + key set, ls20 L5's failed 19-action plan should
+  now trigger a 2nd Opus attempt seeded with "reached levels_completed=X ..." — watch for a 2nd
+  `opus teacher proposed` line and, ideally, `OPUS_TEACHER solved`. If teacher still 1-shot, confirm
+  `V21_OPUS_ROUNDS` is exported in run_cadence.sh.
+
 - [2026-07-08 18:02Z] **item C2 — WIRE persistent world model into cadence_runner (V21_WORLD_MODEL)** —
   HEALTH: runner HEALTHY/RUNNING — prior run 120617Z finished `cadence exit=0` @17:53Z; newest cron
   175324Z started 17:53Z, actively in ls20 L5 BFS (silent ~9m, within the 600s budget). `.cadence.lock`

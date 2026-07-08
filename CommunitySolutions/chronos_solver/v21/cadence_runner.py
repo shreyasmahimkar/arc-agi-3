@@ -301,6 +301,15 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = gsol, len(gsol), True
                 corpus[lvl] = gsol
                 logger.info("[%s L%d] GOEXPLORE solved in %d actions", gid, lvl, len(gsol))
+        # Neural toddler harvest (Epic C3 / R11): on an UNSOLVED wall, probe each
+        # action ONCE from the re-rooted start and log (frame, action -> changed/won)
+        # samples for the StochasticGoose-style frame-change CNN. Trained later in
+        # consolidation on the Mac GPU (MPS). Env-gated V21_TODDLER_NET; fully guarded.
+        if best is None and os.environ.get("V21_TODDLER_NET", "0") in ("1", "true", "True"):
+            try:
+                _harvest_toddler_samples(solver, lvl, gid)
+            except Exception as e:
+                logger.debug("[%s L%d] toddler harvest error: %s", gid, lvl, e)
         # Stage-3.5 runtime code-writer (BACKLOG #3): last resort — only for still
         # UNSOLVED wall levels after blitz + BFS both fail. The local Qwen writes a
         # WorldModel from the observed transitions and proposes shortest-first plans;
@@ -321,6 +330,34 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                     corpus[lvl] = csol
                     logger.info("[%s L%d] RUNTIME_CODER solved in %d actions",
                                 gid, lvl, len(csol))
+        # Stage-3.6 OPUS TEACHER (R13): the final teacher — when everything local
+        # fails a wall, ask cloud Opus to read the WHITE-BOX source and construct the
+        # winning sequence. Its plan is UNVERIFIED → still verify + shortest-gate +
+        # exploit-refusal below. Env-gated V21_OPUS_TEACHER (needs ANTHROPIC_API_KEY).
+        if best is None and os.environ.get("V21_OPUS_TEACHER", "0") in ("1", "true", "True"):
+            try:
+                tsol = _opus_teacher_for_solver(solver, lvl, gid)
+            except Exception as e:
+                tsol = None
+                logger.debug("[%s L%d] opus teacher error: %s", gid, lvl, e)
+            if tsol and _verify(solver, lvl, tsol):
+                best, best_len, improved = tsol, len(tsol), True
+                corpus[lvl] = tsol
+                logger.info("[%s L%d] OPUS_TEACHER solved in %d actions", gid, lvl, len(tsol))
+        # Stage-3.7 OPUS WORLD MODEL (B2): Opus WRITES an executable WorldModel .py
+        # from the white-box source; we exec it, plan in it, verify on the engine, and
+        # persist it to brain/wm/<gid>/model.py. The generalization spine — more general
+        # than a one-off plan. Env-gated V21_OPUS_WM (needs ANTHROPIC_API_KEY).
+        if best is None and os.environ.get("V21_OPUS_WM", "0") in ("1", "true", "True"):
+            try:
+                wsol = _opus_world_model_for_solver(solver, lvl, gid)
+            except Exception as e:
+                wsol = None
+                logger.debug("[%s L%d] opus world-model error: %s", gid, lvl, e)
+            if wsol and _verify(solver, lvl, wsol):
+                best, best_len, improved = wsol, len(wsol), True
+                corpus[lvl] = wsol
+                logger.info("[%s L%d] OPUS_WM solved in %d actions", gid, lvl, len(wsol))
         if best is None:
             logger.info("[%s L%d] UNSOLVED at budget %ss", gid, lvl, bfs_timeout)
             continue
@@ -432,6 +469,21 @@ def _toddler_order(bb, gid, level, avail, frame=None, env=None):
     raises. Pure enough to unit-test without the engine (pass `frame=None`)."""
     if not _toddler_enabled(env) or bb is None:
         return None
+    # Neural toddler (R11) first, when V21_TODDLER_NET is on AND a trained net
+    # exists for this game — a frame-change CNN gives frame-aware ordering the
+    # symbolic prior can't. Falls through to the symbolic Toddler on any miss.
+    _envv = os.environ if env is None else env
+    if _envv.get("V21_TODDLER_NET", "0") in ("1", "true", "True"):
+        try:
+            from brain.toddler_net import ToddlerNet
+            net = ToddlerNet(gid)
+            if net.load():
+                order = net.order_actions(frame=frame, game=gid)
+                order = [a for a in order if a in avail]
+                if order:
+                    return order
+        except Exception as e:
+            logger.debug("[%s] neural toddler order failed: %s", gid, e)
     try:
         from brain.toddler import Toddler
         prior = None
@@ -686,6 +738,225 @@ def _goexplore_for_solver(solver, level_idx, bb=None):
                                            seed_plans=seeds)
 
 
+def _opus_world_model_for_solver(solver, level_idx, gid):
+    """Stage-3.7: ask Opus to WRITE an executable WorldModel .py from the white-box
+    source (B2 — the world model, not just a plan). Sandbox-exec it, enumerate its
+    candidate plans, replay each on a fork, return the shortest winner (UNVERIFIED —
+    caller verifies). Persists the model to brain/wm/<gid>/model.py for reuse."""
+    import numpy as np
+    from combined_agent import ActionInput, GameAction
+    from brain.teacher import OpusTeacher
+    import runtime_coder as rc
+
+    teacher = OpusTeacher()
+    if not teacher.available():
+        return None
+    src = ""
+    try:
+        src = open(getattr(solver, "game_path", "")).read()
+    except Exception:
+        pass
+    res = None
+    try:
+        res = solver._make_start_state(level_idx)
+    except Exception:
+        res = None
+    if res is None:
+        return None
+    game, f0 = res
+    f0 = np.asarray(f0)
+    avail = [a for a in (getattr(game, "_available_actions", []) or []) if 1 <= a <= 5] or [1, 2, 3, 4, 5]
+
+    code = teacher.write_world_model(gid, src, level_idx, avail)
+    if not code:
+        return None
+    # persist the world model .py (the B2 artifact — reusable next run)
+    try:
+        wmdir = os.path.join(HERE, "brain", "wm", gid)
+        os.makedirs(wmdir, exist_ok=True)
+        open(os.path.join(wmdir, "model.py"), "w").write(code)
+    except Exception:
+        pass
+
+    obs = {"level": level_idx, "available_actions": avail,
+           "frame": f0.tolist() if hasattr(f0, "tolist") else f0}
+    wm, err = rc._exec_world_model(code, obs)
+    if wm is None:
+        logger.info("[%s L%d] opus WM exec failed: %s", gid, level_idx, err)
+        return None
+    try:
+        plans = wm.candidate_plans(int(os.environ.get("V21_OPUS_WM_MAXLEN", "400"))) or []
+    except Exception as e:
+        logger.info("[%s L%d] opus WM candidate_plans crashed: %s", gid, level_idx, e)
+        return None
+
+    def _clone(g):
+        return solver._restore(solver._snap(g))
+
+    def _play(g, step):
+        aid, data = step
+        ai = (ActionInput(id=GameAction.from_id(aid), data=data) if data
+              else ActionInput(id=GameAction.from_id(aid)))
+        r = g.perform_action(ai, raw=True)
+        return int(getattr(r, "levels_completed", 0) or 0)
+
+    goal = level_idx + 1
+    for plan in sorted([p for p in plans if p], key=len)[:64]:
+        if any(a == 6 and isinstance(d, dict) and (d.get("x") is None or d.get("y") is None)
+               for a, d in plan):
+            continue                         # R2.7 exploit refusal
+        try:
+            if rc.replay_wins(game, plan, _clone, _play, goal):
+                logger.info("[%s L%d] OPUS_WM model-plan wins (%d actions)", gid, level_idx, len(plan))
+                return plan
+        except Exception:
+            continue
+    logger.info("[%s L%d] opus WM: no candidate plan won", gid, level_idx)
+    return None
+
+
+def _opus_teacher_for_solver(solver, level_idx, gid):
+    """Stage-3.6: hand the WHITE-BOX game source + stuck level to cloud Opus and get
+    a candidate plan. UNVERIFIED (caller verifies + shortest-gates). Refuses the
+    null-coord ACTION6 exploit. Needs ANTHROPIC_API_KEY in the environment."""
+    from brain.teacher import OpusTeacher
+    teacher = OpusTeacher()
+    if not teacher.available():
+        logger.info("[%s L%d] opus teacher: no API key — skipping", gid, level_idx)
+        return None
+    # read the version-exact source the solver loaded (the white-box advantage)
+    src = ""
+    try:
+        src = open(getattr(solver, "game_path", "")).read()
+    except Exception:
+        pass
+    avail = [1, 2, 3, 4, 5]
+    try:
+        res = solver._make_start_state(level_idx)
+        if res is not None:
+            g, _ = res
+            avail = [a for a in (getattr(g, "_available_actions", []) or []) if 1 <= a <= 5] or avail
+    except Exception:
+        pass
+    notes = f"local blitz/BFS/Go-Explore/Qwen all failed level {level_idx}."
+
+    # R7 teach-with-feedback: EXECUTE each proposed plan on a fresh fork and feed the
+    # engine's failure report (how far it got + where it stalled) back to Opus for the
+    # next round, instead of discarding a near-miss (this run: ls20 L5 got a 19-action
+    # plan that failed verify and was thrown away). Env V21_OPUS_ROUNDS controls rounds
+    # (default 2); 1 preserves the old single-shot behavior.
+    def _try_plan(p):
+        try:
+            solved = _verify(solver, level_idx, p)
+        except Exception:
+            solved = False
+        if solved:
+            return True, "solved"
+        return False, _replay_feedback(solver, level_idx, p)
+
+    try:
+        rounds = int(os.environ.get("V21_OPUS_ROUNDS", "2"))
+    except Exception:
+        rounds = 2
+    if rounds > 1 and hasattr(teacher, "solve_wall_iterative"):
+        plan = teacher.solve_wall_iterative(
+            gid, src, level_idx, avail, _try_plan, max_rounds=rounds, notes=notes)
+    else:
+        plan = teacher.solve_wall(gid, src, level_idx, avail, notes=notes)
+    if not plan:
+        return None
+    # R2.7: never accept the null-coordinate ACTION6 exploit
+    for a, d in plan:
+        if a == 6 and isinstance(d, dict) and (d.get("x") is None or d.get("y") is None):
+            logger.info("[%s L%d] opus plan used null-coord ACTION6 — refused", gid, level_idx)
+            return None
+    logger.info("[%s L%d] opus teacher proposed a %d-action plan", gid, level_idx, len(plan))
+    return plan
+
+
+def _replay_feedback(solver, level_idx, plan):
+    """Replay a proposed plan on a FRESH fork and return a compact textual report of
+    how far it got — the R7 feedback the teacher's next round reads. Never mutates the
+    real run (fork only); engine imports are lazy (Mac-only). Degrades to a generic
+    note on any error so the teach loop is never broken by feedback generation."""
+    try:
+        import numpy as np
+        from combined_agent import ActionInput, GameAction
+        res = solver._make_start_state(level_idx)
+        if res is None:
+            return "could not re-root level %d to replay" % level_idx
+        game, f0 = res
+        g = solver._restore(solver._snap(game))
+        f0 = np.asarray(f0)
+        goal = level_idx + 1
+        reached = 0
+        prev = f0
+        stalled_at = None
+        for i, (a, d) in enumerate(plan or []):
+            try:
+                if int(a) == 6 and isinstance(d, dict):
+                    ai = ActionInput(id=GameAction.from_id(6),
+                                     data={"x": d.get("x"), "y": d.get("y")})
+                else:
+                    ai = ActionInput(id=GameAction.from_id(int(a)))
+                r = g.perform_action(ai, raw=True)
+            except Exception:
+                stalled_at = i
+                break
+            reached = max(reached, int(getattr(r, "levels_completed", 0) or 0))
+            nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+            if nf is not None:
+                if stalled_at is None and np.array_equal(nf, prev):
+                    stalled_at = i  # first action that changed nothing
+                prev = nf
+            if reached >= goal:
+                break
+        parts = ["reached levels_completed=%d of goal %d after %d/%d actions"
+                 % (reached, goal, min(len(plan or []), (stalled_at + 1) if stalled_at is not None else len(plan or [])), len(plan or []))]
+        if stalled_at is not None:
+            parts.append("first no-op/failure at action index %d (%s)"
+                         % (stalled_at, (plan[stalled_at][0] if stalled_at < len(plan) else "?")))
+        return "; ".join(parts)
+    except Exception as e:
+        return "replay feedback unavailable: %s" % e
+
+
+def _harvest_toddler_samples(solver, level_idx, gid):
+    """Probe each action once from the level's re-rooted start and append labeled
+    (frame, action -> changed/won) samples for the neural toddler CNN (R11). Both
+    positives (actions that change/win) and negatives (no-ops) are recorded — the
+    exact supervised signal StochasticGoose uses. Engine imports lazy (Mac-only)."""
+    import numpy as np
+    from combined_agent import ActionInput, GameAction
+    from brain import toddler_net as TN
+
+    res = None
+    try:
+        res = solver._make_start_state(level_idx)
+    except Exception:
+        res = None
+    if res is None:
+        return
+    game, f0 = res
+    f0 = np.asarray(f0)
+    frame_list = f0.tolist() if hasattr(f0, "tolist") else f0
+    avail = [a for a in (getattr(game, "_available_actions", []) or []) if 1 <= a <= 5] or [1, 2, 3, 4, 5]
+    samples = []
+    for a in avail:
+        try:
+            g = solver._restore(solver._snap(game))
+            r = g.perform_action(ActionInput(id=GameAction.from_id(a)), raw=True)
+            nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+            changed = bool(nf is not None and not np.array_equal(nf, f0))
+            won = int(getattr(r, "levels_completed", 0) or 0) >= level_idx + 1
+            samples.append({"frame": frame_list, "action": a, "changed": changed, "won": won})
+        except Exception:
+            continue
+    if samples:
+        TN.append_samples(gid, samples)
+        logger.info("[%s L%d] toddler harvest: +%d samples", gid, level_idx, len(samples))
+
+
 def _runtime_coder_for_solver(solver, level_idx, llm, max_len):
     """Stage-3.5: when blitz + BFS both fail a wall level, hand the observed
     transitions to the RuntimeCoder (local Qwen world-model writer). It writes a
@@ -769,6 +1040,68 @@ def last_game_rhae(gid):
         if d.get("game") == gid and "game_rhae" in d:
             best = d["game_rhae"]  # last one wins (chronological)
     return best
+
+
+# ---- Phase 2: the 274-game generalization corpus (CONTINGENT on 3-game crack) --
+def _all_levels_solved(n_solved, n_levels):
+    """Pure gate: a game is 'cracked' iff every level has a verified solution."""
+    return n_levels > 0 and n_solved >= n_levels
+
+
+def default_games_cracked(default_games=None):
+    """True only when EVERY default game (ls20/ft09/vc33) has all its levels solved
+    in the corpus. This is the hard gate that unlocks Phase 2 — the 274-game corpus
+    stays dark until the 3-game focus set is fully cracked."""
+    for gid in (default_games or DEFAULT_GAMES):
+        info = resolve_source(gid)
+        if not info:
+            return False
+        baselines, _ = load_baselines(info[0], gid)
+        n_levels = len(baselines) if baselines else 0
+        corpus = load_corpus(gid)
+        if not _all_levels_solved(len(corpus), n_levels):
+            return False
+    return True
+
+
+def discover_all_games():
+    """Every game id whose <id>/**/<id>.py engine source is reachable (the 274-game
+    testbed lives here already; solve_all.discover_games uses the same roots)."""
+    found = set()
+    for base in GAME_ROOTS + ([os.environ["V21_EXTRA_GAMES_DIR"]] if os.environ.get("V21_EXTRA_GAMES_DIR") else []):
+        if base and os.path.isdir(base):
+            for d in os.listdir(base):
+                if glob.glob(os.path.join(base, d, "**", f"{d}.py"), recursive=True):
+                    found.add(d)
+    return sorted(found)
+
+
+def phase2_harvest(BFSSolver, max_games=None, exclude=None):
+    """Phase 2 (generalization): harvest neural-toddler samples across the WIDE game
+    corpus — probe L0 of each discovered game so the toddler learns a game-AGNOSTIC
+    frame-change prior. Bounded per run (V21_PHASE2_MAX). Harvest-only + guarded; it
+    never solves/commits, so it can't touch the verified 3-game corpus."""
+    exclude = set(exclude or DEFAULT_GAMES)
+    games = [g for g in discover_all_games() if g not in exclude]
+    cap = int(max_games if max_games is not None else os.environ.get("V21_PHASE2_MAX", "40"))
+    done = 0
+    for gid in games:
+        if done >= cap:
+            break
+        info = resolve_source(gid)
+        if not info:
+            continue
+        path, cls, ver = info
+        try:
+            solver = BFSSolver(path, cls, bfs_timeout=10)
+            if not solver.load():
+                continue
+            _harvest_toddler_samples(solver, 0, gid)   # probe L0 -> (frame,action)->changed
+            done += 1
+        except Exception as e:
+            logger.debug("[phase2 %s] harvest skipped: %s", gid, e)
+    logger.info("phase2 harvest: probed %d/%d wide games (cap %d)", done, len(games), cap)
+    return done
 
 
 def walls_for(gid, corpus):
@@ -917,6 +1250,34 @@ def main():
         summary_lines.append("- intuition: prior re-distilled from corpus")
     except Exception as e:
         logger.warning("intuition distill skipped: %s", e)
+
+    # (1b) Neural toddler TRAIN step (Epic C3 / R11) — wake-sleep consolidation.
+    # Trains the StochasticGoose-style frame-change CNN on the harvested samples,
+    # on the Mac GPU (MPS auto-detected). Env-gated V21_TODDLER_NET; degrades to a
+    # logged reason if torch/data are missing (never blocks the run).
+    if os.environ.get("V21_TODDLER_NET", "0") in ("1", "true", "True"):
+        try:
+            from brain.toddler_net import ToddlerNet
+            for gid in games:
+                status = ToddlerNet(gid).train()
+                logger.info("[%s] toddler_net train: %s", gid, status)
+                summary_lines.append(f"- toddler_net[{gid}]: {status}")
+        except Exception as e:
+            logger.warning("toddler_net train skipped: %s", e)
+
+    # (1c) PHASE 2 (274-game generalization) — HARD-GATED on the 3 default games
+    # being fully cracked. Until ls20+ft09+vc33 are 100% solved this is a no-op that
+    # just reports it's still gated; once cracked, it harvests toddler samples across
+    # the wide corpus so the intuitive prior + world models generalize to unseen games.
+    if os.environ.get("V21_PHASE2", "0") in ("1", "true", "True"):
+        try:
+            if default_games_cracked():
+                n = phase2_harvest(BFSSolver)
+                summary_lines.append(f"- PHASE 2 UNLOCKED (3 games cracked): harvested {n} wide games")
+            else:
+                summary_lines.append("- phase 2: GATED — 3 default games not yet fully solved")
+        except Exception as e:
+            logger.warning("phase 2 skipped: %s", e)
 
     # (2) The code-writer evolution runs only with --evolve (needs an LLM backend).
     if args.evolve:
