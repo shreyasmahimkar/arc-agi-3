@@ -324,8 +324,68 @@ R14. **(Long-horizon integration target) The ensemble the user is imagining: ope
     **BLOCKER: aggregate — GPU training route (R9/R11) + Mac API access (R13) + more RAM for real
     best-of-N.** Sequenced behind R9–R13; do not attempt as a single big-bang change.
 
+# =====================================================================
+# EPIC C — Teacher/Student ensemble (shared scratchpad).  Design: TEACHER_STUDENT.md
+# =====================================================================
+# The unifying frame (user steer 2026-07-08): every solver is a TEACHER; the
+# intuitive prior is a TODDLER; they teach each other + the toddler via one shared
+# scratchpad `brain/blackboard.py` (built + offline-tested, per-game JSON, provenance
+# on every lesson). Lets T1/T2/T3 be built IN PARALLEL — they only meet at the
+# blackboard. Same invariants: additive, env-gated OFF, verify+shortest-gated,
+# offline-covered, corpus never at risk.
+C0. **Blackboard substrate.** [DONE this session] `brain/blackboard.py`: action_effects,
+    fragments (Go-Explore seeds), dead_ends (negative constraints), cells (novelty archive),
+    world_facts; `hints(level)` for students; `consolidate()` sleep-teacher; persisted at
+    `brain/blackboard/<gid>.json`. 8 offline checks in `test_blackboard.py`.
+    [WIRED 2026-07-08] `cadence_runner.solve_game` now WRITEs every verified win as a fragment +
+    per-action effects (`_bb_record_solution`) and READs the blackboard's verified fragments to
+    replay-then-`_verify` on still-UNSOLVED walls (`_bb_seed_candidates` — the C0→C1 Go-Explore
+    bridge, a sibling/prior lesson cracking a wall), then consolidate+save each pass. Pure helpers
+    `_bb_enabled/_bb_open/_bb_record_solution/_bb_seed_candidates`; env `V21_BLACKBOARD` (default
+    OFF); verify+shortest-gated; corpus untouched. Also fixed a latent `consolidate()` unhashable-
+    dict crash (json-key dedup) so it survives ACTION6 click-plans. +11 offline checks. *Remaining:*
+    a Mac cadence with `V21_BLACKBOARD=1` where a fragment cracks a wall ("BLACKBOARD seed solved"),
+    then C1 upgrades `ladder.macro_bfs` to a cell-archive Go-Explore reading these seeds.
+C1 (=T1). **Go-Explore intuitive search** — upgrade `ladder.macro_bfs` to a cell-archive
+    Go-Explore (`blackboard.cell_key` cells + return-to-promising-cell + macro explore), guided
+    by the toddler's `action_order`. The ls20 L5 lever (tames the 19k-state blowup). Env `V21_GOEXPLORE`.
+    *Done when:* ls20 L5 registers `levels_completed>=6`.
+    [CODED + offline-verified 2026-07-08] `ladder.go_explore`: cell archive keyed on a COARSE
+    `cell_fn(state)` (real wiring = `blackboard.cell_key` on the status-bar-masked frame), keeps the
+    SHORTEST path per cell, returns-to-promising-cell (fewest visits then shortest path, over-visit
+    cap), single-step + corridor-sweep macro edges that drop a breadcrumb in every NEW cell (patience
+    stagnation stop — coarse cells don't change every step, so it can't use macro_bfs's stop-on-no-
+    change). Wrapper `planner.plan_in_model_goexplore`; runner Stage-3.45 `_goexplore_for_solver`
+    (steered by the blackboard toddler `action_order`, primed by its verified fragments) wired into
+    `solve_game` for UNSOLVED walls, env `V21_GOEXPLORE` (now exported =1 in run_cadence.sh alongside
+    the newly-exported `V21_BLACKBOARD=1`, per the R13 "coded-but-never-exported" lesson).
+    verify+shortest-gated; corpus untouched. +5 offline checks (solve/action_order/seed/None-unreach).
+    *Remaining:* a Mac cadence where GOEXPLORE registers `levels_completed>=6` on ls20 L5; if flat,
+    tune `V21_GOEXPLORE_BINS` (cell coarseness) + `V21_PLANNER_STATES`, or seed from the L4 end-state.
+C2 (=T2, subsumes B2). **Persistent executable world model** — `brain/wm/<gid>/` verified vs
+    recorded transitions, MDL-refactored, reused across runs; teaches world_facts. Env `V21_WORLD_MODEL`.
+    *Done when:* a persisted model reproduces a solved level's transitions and seeds a solve next run.
+C3 (=T3, subsumes B8/R9/R11). **Intuitive brain / toddler** — frame-change/action scorer
+    (self-supervised online from action_effects first; StochasticGoose-lite CNN / TRM later) behind
+    the fixed `IntuitionPrior.order_actions` interface; guides C1. Env `V21_TODDLER`.
+    *Done when:* toddler-guided search solves a wall in fewer states than blind.
+    [CODED + offline-verified 2026-07-08] `brain/toddler.py::Toddler` — behind the FIXED
+    `order_actions(game, frame)` interface, BLENDS the corpus `IntuitionPrior` with the blackboard's
+    ONLINE `action_effects` (win-weighted change-rate, alpha=0.7): unseen → corpus prior, seen → shift
+    to observed effectiveness. Frame-AWARE first form: per-coarse-frame effect memory (`cell_key`) so a
+    StochasticGoose/TRM net (R9/R11) drops in behind `_effect_score` with NO interface change. Wired
+    env-gated `V21_TODDLER` into `_goexplore_for_solver` (Stage-3.45) via pure `_toddler_enabled` /
+    `_toddler_order` (degrades to `bb.action_order`/canonical on off/None/failure). Exported
+    `V21_TODDLER=1` in run_cadence.sh. +10 offline checks (no-op empty, prior-lead, learned override,
+    frame-conditioning, gate, avail restriction). *Remaining:* a Mac cadence with `V21_TODDLER=1` +
+    `V21_GOEXPLORE=1` where the toddler's effect-ranked order reaches ls20 L5's frontier in fewer states
+    than blind; then C2 persistent world model is the last Epic-C track.
+# Build order (lowest-risk first): C0 wiring (teachers write + students read) → C1 Go-Explore
+# → C3 toddler distilled from action_effects → C2 persistent WM. C0's read/write makes every
+# later track better, so it is the next cycle's priority.
+
 ## Stop condition
 All 20 levels across the 3 games solved + verified at RHAE 1.0 (or the highest reachable),
-and the offline Kaggle notebook reproduces them. Then freeze and submit. Epic B has its OWN
-success metric — held-out generalisation (a concept from one game solving another, B6) — pursued
+and the offline Kaggle notebook reproduces them. Then freeze and submit. Epic B/C have their OWN
+success metric — held-out generalisation (a concept from one game solving another) — pursued
 in parallel without ever risking the verified corpus.

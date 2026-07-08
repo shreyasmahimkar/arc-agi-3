@@ -400,6 +400,47 @@ def main():
                                     max_states=5000, max_macro=64)
     ok &= _check("planner.plan_in_model_macro returns None when goal unreachable",
                  mplan2 is None)
+    #   plan_in_model_goexplore (C1, ls20 L5-L6 lever): a 6x6 corridor+turn maze.
+    #   COARSE cell_fn bins the grid 2x so near-identical cells MERGE — proving the
+    #   archive stays small (Go-Explore) while still reaching the deep goal.
+    def _mk_maze():
+        def clone(s): return dict(s)
+        def play(s, step):
+            a, _ = step
+            if a == 2 and s["x"] < 5: s["x"] += 1
+            elif a == 3 and s["x"] >= 5 and s["y"] < 5: s["y"] += 1
+            return 1 if (s["x"] >= 5 and s["y"] >= 5) else 0
+        def cell(s): return (s["x"], s["y"] // 2)   # coarse in y -> merges neighbours
+        return clone, play, cell
+    _cl3, _pl3, _cell = _mk_maze()
+    gplan = PL.plan_in_model_goexplore({"x": 0, "y": 0}, [2, 3, 4], _cl3, _pl3, _cell,
+                                       goal=1, max_states=5000, max_macro=16)
+    _s = {"x": 0, "y": 0}; _lc = 0
+    for st in (gplan or []): _lc = _pl3(_s, st)
+    ok &= _check("planner.plan_in_model_goexplore solves a corridor+turn maze",
+                 bool(gplan) and _lc >= 1)
+    #   action_order guidance is honoured (tries the given ids first, still wins)
+    gplan_o = PL.plan_in_model_goexplore({"x": 0, "y": 0}, [2, 3, 4], _cl3, _pl3, _cell,
+                                         goal=1, max_states=5000, max_macro=16,
+                                         action_order=[3, 2, 4])
+    ok &= _check("plan_in_model_goexplore honours action_order and still solves",
+                 bool(gplan_o))
+    #   seed_plans priming: hand it the winning plan as a fragment -> returns it fast
+    gplan_s = PL.plan_in_model_goexplore({"x": 0, "y": 0}, [2, 3, 4], _cl3, _pl3, _cell,
+                                         goal=1, max_states=50, max_macro=16,
+                                         seed_plans=[gplan])
+    ok &= _check("plan_in_model_goexplore replays a winning seed fragment first",
+                 gplan_s is not None and len(gplan_s) == len(gplan))
+    #   unreachable goal -> None (wall at x=3, goal needs x>=5)
+    def _pl_block(s, step):
+        a, _ = step
+        if a == 2 and s["x"] < 3: s["x"] += 1
+        elif a == 3 and s["x"] >= 5 and s["y"] < 5: s["y"] += 1
+        return 1 if (s["x"] >= 5 and s["y"] >= 5) else 0
+    gplan_n = PL.plan_in_model_goexplore({"x": 0, "y": 0}, [2, 3], _cl3, _pl_block, _cell,
+                                         goal=1, max_states=2000, max_macro=16)
+    ok &= _check("plan_in_model_goexplore returns None when goal unreachable",
+                 gplan_n is None)
     #   executor: model predicts frames "1","2","3"; real diverges at step 2
     #   (returns "2","BAD") -> mismatch_at == 1, not won.
     seqp = iter(["1", "2", "3"])
@@ -445,6 +486,91 @@ def main():
                  cr._should_resolve(True, env={"V21_RESOLVE_SOLVED": "1"}) is True)
     ok &= _check("resolve gate: unsolved level solved even with flag on",
                  cr._should_resolve(False, env={"V21_RESOLVE_SOLVED": "1"}) is True)
+
+    # 12) Epic C0 blackboard read/write wiring (pure helpers — engine replay is
+    #     _verify in solve_game, not exercised here). Uses a temp blackboard dir.
+    _BBDIR = os.path.join(tempfile.gettempdir(), "v21_test_bb")
+    os.environ["V21_BLACKBOARD_DIR"] = _BBDIR
+    import shutil as _sh
+    _sh.rmtree(_BBDIR, ignore_errors=True)
+    ok &= _check("bb gate: OFF by default", cr._bb_enabled(env={}) is False)
+    ok &= _check("bb gate: ON with V21_BLACKBOARD=1",
+                 cr._bb_enabled(env={"V21_BLACKBOARD": "1"}) is True)
+    ok &= _check("bb open: None when gated off", cr._bb_open("zz00", env={}) is None)
+    _bb = cr._bb_open("zz00", env={"V21_BLACKBOARD": "1"})
+    ok &= _check("bb open: Blackboard when gated on", _bb is not None)
+    # WRITE a verified win, then READ it back as a seed candidate
+    _plan = [(6, {"x": 1, "y": 2}), (2, {}), (6, {"x": 3, "y": 4})]
+    cr._bb_record_solution(_bb, 0, _plan, source="test")
+    _seeds = cr._bb_seed_candidates(_bb, 0)
+    ok &= _check("bb write->read: taught plan is a seed candidate",
+                 any(len(s) == 3 for s in _seeds))
+    _eff = _bb.data["action_effects"]
+    ok &= _check("bb write: terminal action recorded a win",
+                 _eff.get("6", {}).get("won", 0) >= 1)
+    ok &= _check("bb write: every plan action recorded as tried",
+                 _eff.get("2", {}).get("tried", 0) >= 1)
+    ok &= _check("bb read: won action ranks before non-won in action_order",
+                 _bb.action_order(0).index(6) < _bb.action_order(0).index(2))
+    ok &= _check("bb read: seed candidates never crash on empty level",
+                 isinstance(cr._bb_seed_candidates(_bb, 9), list))
+    ok &= _check("bb record: no-op on None bb / empty plan",
+                 cr._bb_record_solution(None, 0, _plan) is None
+                 and cr._bb_record_solution(_bb, 0, []) is _bb)
+    _bb.consolidate().save()
+    _bb2 = cr._bb_open("zz00", env={"V21_BLACKBOARD": "1"})
+    ok &= _check("bb persist: fragments survive save/reload",
+                 len(_bb2.data["fragments"]) >= 1)
+
+    # 13) Epic C3 toddler — intuitive action orderer (corpus prior + online
+    #     action_effects, frame-aware) behind the fixed order_actions interface.
+    from brain.toddler import Toddler
+    from brain.blackboard import ALL_ACTIONS as _ALL
+
+    class _StubPrior:
+        p = {"global": {"3": 0.9}, "per_game": {}, "actions": _ALL}
+
+    # (a) with no lessons + no prior, ordering is a NO-OP (canonical order)
+    ok &= _check("toddler: empty -> canonical order (no-op)",
+                 Toddler().order_actions() == list(_ALL))
+    # (b) with only a corpus prior, the toddler leans on it (favours action 3)
+    ok &= _check("toddler: unseen -> corpus prior leads",
+                 Toddler(prior=_StubPrior()).order_actions(game="zz00")[0] == 3)
+    # (c) ONLINE override: an action observed to win/change beats a prior-favoured
+    #     action that never changes anything (self-supervised from effects)
+    _t = Toddler(blackboard=cr._bb_open("zz00", env={"V21_BLACKBOARD": "1"}),
+                 prior=_StubPrior())
+    for _ in range(3):
+        _t.observe(5, changed=True, won=True)     # effective action
+        _t.observe(3, changed=False, won=False)   # prior-favoured but inert
+    _o = _t.order_actions(game="zz00")
+    ok &= _check("toddler: learned-effective action overrides corpus prior",
+                 _o.index(5) < _o.index(3))
+    # (d) FRAME-conditioning: different frames prefer different actions
+    _tf = Toddler()
+    for _ in range(2):
+        _tf.observe(2, changed=True, won=True, frame="frameX")
+        _tf.observe(4, changed=True, won=True, frame="frameY")
+    ok &= _check("toddler: frame X prefers its effective action",
+                 _tf.order_actions(frame="frameX")[0] == 2)
+    ok &= _check("toddler: frame Y prefers its effective action",
+                 _tf.order_actions(frame="frameY")[0] == 4)
+    # (e) runner wiring: gate + candidate restriction + graceful degrade
+    ok &= _check("toddler gate: OFF by default", cr._toddler_enabled(env={}) is False)
+    ok &= _check("toddler gate: ON with V21_TODDLER=1",
+                 cr._toddler_enabled(env={"V21_TODDLER": "1"}) is True)
+    ok &= _check("toddler order: None when gated off",
+                 cr._toddler_order(_bb, "zz00", 0, [1, 2, 3], env={}) is None)
+    ok &= _check("toddler order: None when no blackboard",
+                 cr._toddler_order(None, "zz00", 0, [1, 2, 3],
+                                   env={"V21_TODDLER": "1"}) is None)
+    _to = cr._toddler_order(_bb, "zz00", 0, [1, 2, 3, 4, 5],
+                            env={"V21_TODDLER": "1"})
+    ok &= _check("toddler order: returns only in-`avail` actions",
+                 isinstance(_to, list) and set(_to) <= {1, 2, 3, 4, 5})
+
+    _sh.rmtree(_BBDIR, ignore_errors=True)
+    os.environ.pop("V21_BLACKBOARD_DIR", None)
 
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1

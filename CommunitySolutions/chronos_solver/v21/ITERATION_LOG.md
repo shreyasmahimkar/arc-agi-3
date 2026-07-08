@@ -6,6 +6,62 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08] **item C3 — TODDLER intuitive action orderer (brain/toddler.py, V21_TODDLER)** —
+  HEALTH: runner HEALTHY/RUNNING — newest cron 120617Z last write ~75s before this check (14:01 UTC),
+  no `cadence exit=` line, actively in ls20 BFS L5/L6 (16852 explored, 4495 unique @600s). `.cadence.lock`
+  present = the live 120621Z run holding it (mtime 12:06 UTC), NOT stale. Last COMPLETE run 120621Z flat:
+  ls20/ft09/vc33 all RHAE 1.000 on solved tiers, 0 walls newly cracked, evolve skipped (ollama backend).
+  CODED: `brain/toddler.py::Toddler` — the C3 "toddler" behind the FIXED `order_actions(game, frame)`
+  interface. Blends the corpus-frequency `IntuitionPrior` with the blackboard's ONLINE `action_effects`
+  (win-weighted change-rate): unseen actions lean on the corpus prior, seen actions shift toward observed
+  effectiveness (alpha=0.7). Frame-AWARE first (GPU-free) form: per-coarse-frame effect memory
+  (`cell_key`) so a StochasticGoose/TRM net (R9/R11) can later drop in behind `_effect_score` with no
+  interface change. Wired env-gated `V21_TODDLER` into `_goexplore_for_solver` via pure helpers
+  `_toddler_enabled` / `_toddler_order` (Stage-3.45 action order; degrades to `bb.action_order`/canonical
+  on off/None/failure — never invents actions, never raises). Exported `V21_TODDLER=1` in run_cadence.sh
+  (per the R13 "coded-but-never-exported" lesson). VERIFIED: `py_compile` clean; `test_offline.py` GREEN
+  with +10 new checks (no-op when empty; corpus-prior lead; learned-effect override of prior;
+  frame-conditioning X vs Y; gate on/off; None on off/no-bb; avail restriction); `test_blackboard.py`
+  GREEN. COMMIT BLOCKED: stale `.git/index.lock` (10:33 UTC) + `.git/HEAD.lock` (08:40 UTC) present and
+  the Linux sandbox cannot unlink them ("Operation not permitted") — changes are on disk (toddler.py
+  untracked, 3 files modified) awaiting a Mac-side commit. Expected next Mac run (locks cleared): with
+  `V21_TODDLER=1` + `V21_GOEXPLORE=1`, ls20 L5 Go-Explore expands the effect-ranked action first instead
+  of blind canonical order — watch for fewer states-to-first-new-cell and `levels_completed>=6`.
+
+- [2026-07-08] **item C1 — cell-archive Go-Explore (ladder.go_explore, Stage-3.45 V21_GOEXPLORE)** —
+  HEALTH: runner HEALTHY/RUNNING — newest cron 102145Z last write ~1.5m before this check (12:00 UTC),
+  no `cadence exit=` line, actively in ls20 BFS L5/L6 then ft09 L2-L5 masked-space sweeps. `.cadence.lock`
+  present but that's the live run holding it (not stale). Last COMPLETE run 102149Z flat: ls20/ft09/vc33
+  all game_rhae 1.0, walls ls20 L5-L6 / ft09 L2-L5 / vc33 L4-L6 still UNSOLVED (no regression). CODE:
+  upgraded `ladder.macro_bfs` → new pure `ladder.go_explore` cell-archive Go-Explore (one repr per COARSE
+  cell, shortest-path-per-cell, return-to-promising-cell w/ over-visit cap, macro corridor-sweep that
+  breadcrumbs every NEW cell with a patience stagnation-stop since coarse cells don't change each step).
+  Wrapper `planner.plan_in_model_goexplore`; runner `_goexplore_for_solver` (cell_fn = `blackboard.cell_key`
+  on status-bar-masked frame; steered by blackboard toddler `action_order`, primed by verified fragments)
+  wired as Stage-3.45 for UNSOLVED walls; exported `V21_GOEXPLORE=1` + `V21_BLACKBOARD=1` in run_cadence.sh
+  (R13 coded-but-never-exported lesson). VERIFIED green: py_compile (4 files) + `test_offline.py` (added 5
+  checks: solve corridor+turn maze, action_order honoured, seed-fragment replay, unreachable→None) +
+  `test_blackboard.py` + `test_ladder_mac.py --selftest`. verify+shortest-gated; corpus untouched.
+  Commit <hash>. NEXT Mac run: expect a `GOEXPLORE solved` line if a coarse-cell archive cracks ls20 L5
+  (`levels_completed>=6`); if flat, tune V21_GOEXPLORE_BINS / V21_PLANNER_STATES or seed from L4 end-state.
+  NOTE: prior run 062043Z was SIGTERM-killed overrunning the 4h window — recommend BUDGET=300.
+
+- [2026-07-08] **item C0 — wire the blackboard READ/WRITE into the cascade (V21_BLACKBOARD)** —
+  HEALTH: runner RUNNING (new cadence 102145Z actively in BFS ls20 L5, last write 3m ago), but the
+  PRIOR run (062043Z) overran the 4h window and was SIGTERM-killed (exit=143, launchd.err confirms
+  caffeinate Terminated:15) — the exact "finish inside 4h" issue; recommend BUDGET=300. Walls
+  unchanged: ls20 L5-L6, ft09 L2-L5, vc33 L4-L6 all UNSOLVED (last COMPLETE run 062047Z flat at
+  RHAE 1.0). CODE: C0 substrate (brain/blackboard.py) was DONE but never wired; added pure helpers
+  `_bb_enabled/_bb_open/_bb_record_solution/_bb_seed_candidates` in cadence_runner and wired
+  solve_game: (READ) for still-UNSOLVED walls, replay the blackboard's verified fragments and keep
+  the first that `_verify`s (the C0->C1 Go-Explore bridge, a sibling/prior lesson cracking a wall);
+  (WRITE) every verified win teaches a fragment + per-action effects; consolidate().save() at pass
+  end. All behind V21_BLACKBOARD (default OFF), verify+shortest-gated, corpus untouched. Also fixed
+  a latent consolidate() crash (TypeError: unhashable dict) so it survives real ACTION6 click-plans
+  — json-key dedup. VERIFY: py_compile green; test_offline.py green (+11 new C0 checks); 
+  test_blackboard.py green. Commit: <hash>. Expected next Mac run with V21_BLACKBOARD=1: "BLACKBOARD
+  seed solved" if a sibling fragment cracks a wall, and a growing brain/blackboard/<gid>.json.
+
 - [2026-07-08] **item R6+R8 — perception-first coder digest (V21_CODER_DIGEST)** — CODE branch:
   newest COMPLETE Mac run 20260708T062047Z is the **4th consecutive FLAT** run (RHAE 1.0/1.0/1.0;
   ls20 L5/L6, ft09 L2-L5, vc33 L4-L6 all still UNSOLVED, improved=false on all 3 games). CRITICAL:

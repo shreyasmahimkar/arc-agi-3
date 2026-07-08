@@ -176,6 +176,9 @@ def solve_game(gid, bfs_timeout, BFSSolver):
     n_levels = (len(baselines) if baselines else None) \
         or getattr(solver, "num_levels", None) or (max(corpus, default=-1) + 1) or 6
 
+    # Epic C0: shared scratchpad for this game (None unless V21_BLACKBOARD=1).
+    bb = _bb_open(gid)
+
     for lvl in range(n_levels):
         prev = corpus.get(lvl)
         prev_len = len(prev) if prev else None
@@ -202,6 +205,23 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = bsol, len(bsol), True
                 corpus[lvl] = bsol
                 logger.info("[%s L%d] BLITZ solved in %d actions", gid, lvl, len(bsol))
+        # Epic C0 READ (Go-Explore seed replay): for still-UNSOLVED walls, replay
+        # the blackboard's verified fragments (from sibling levels / prior runs)
+        # and keep the first that VERIFIES on this wall. Cheap (replay, no search),
+        # verify + shortest-gated, env V21_BLACKBOARD (default OFF). This is the
+        # C0->C1 bridge: a lesson taught on one level cracks another.
+        if best is None and bb is not None:
+            for seed in _bb_seed_candidates(bb, lvl):
+                try:
+                    ok_seed = _verify(solver, lvl, seed)
+                except Exception:
+                    ok_seed = False
+                if ok_seed:
+                    best, best_len, improved = seed, len(seed), True
+                    corpus[lvl] = seed
+                    logger.info("[%s L%d] BLACKBOARD seed solved in %d actions",
+                                gid, lvl, len(seed))
+                    break
         # attempt a fresh (optimal-preferring) solve — BUT skip the expensive
         # re-search on levels already solved+verified from the corpus. Those are
         # already at their measured RHAE (every current ls20/ft09/vc33 solved level
@@ -240,6 +260,23 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = psol, len(psol), True
                 corpus[lvl] = psol
                 logger.info("[%s L%d] BRAIN_PLANNER solved in %d actions", gid, lvl, len(psol))
+        # Stage-3.45 GO-EXPLORE (Epic C1): cell-archive Go-Explore over the engine —
+        # dedups on a COARSE downsampled-frame cell instead of the exact frame hash,
+        # so ls20 L5's corridors merge into a small return-to archive rather than a
+        # 19k-state frontier. Steered by the blackboard's toddler action_order and
+        # primed by its verified fragments when V21_BLACKBOARD is on. Only for still-
+        # UNSOLVED walls; env-gated V21_GOEXPLORE (default OFF); verified+shortest-
+        # gated below. The ls20 L5–L6 lever, complementary to the Stage-3.4 planner.
+        if best is None and os.environ.get("V21_GOEXPLORE", "0") in ("1", "true", "True"):
+            try:
+                gsol = _goexplore_for_solver(solver, lvl, bb)
+            except Exception as e:
+                gsol = None
+                logger.debug("[%s L%d] go-explore error: %s", gid, lvl, e)
+            if gsol and _verify(solver, lvl, gsol):
+                best, best_len, improved = gsol, len(gsol), True
+                corpus[lvl] = gsol
+                logger.info("[%s L%d] GOEXPLORE solved in %d actions", gid, lvl, len(gsol))
         # Stage-3.5 runtime code-writer (BACKLOG #3): last resort — only for still
         # UNSOLVED wall levels after blitz + BFS both fail. The local Qwen writes a
         # WorldModel from the observed transitions and proposes shortest-first plans;
@@ -263,6 +300,9 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         if best is None:
             logger.info("[%s L%d] UNSOLVED at budget %ss", gid, lvl, bfs_timeout)
             continue
+        # Epic C0 WRITE: teach this verified win to the shared scratchpad so later
+        # levels / next runs can replay it as a Go-Explore seed (see READ above).
+        _bb_record_solution(bb, lvl, best, source="cadence")
         solver.solutions[lvl] = best        # chain: later levels verify from here (R5.3)
         hb, hbsrc = baseline_for(baselines, bsrc, gid, lvl)
         r = rhae_level(hb if hb else best_len, best_len)
@@ -272,6 +312,12 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         flag = " <-- OVER BASELINE" if hb and best_len > hb else ""
         logger.info("[%s L%d] actions=%s baseline=%s rhae=%.3f%s",
                     gid, lvl, best_len, hb, r, flag)
+    # Epic C0: persist the lessons taught this pass (bounded via consolidate).
+    if bb is not None:
+        try:
+            bb.consolidate().save()
+        except Exception as e:
+            logger.debug("[%s] blackboard save failed: %s", gid, e)
     return rows, corpus, improved
 
 
@@ -280,6 +326,93 @@ def _verify(solver, lvl, sol):
         return bool(solver.verify_solution(lvl, sol))
     except Exception:
         return False
+
+
+# ---- Epic C0: shared blackboard read/write wiring ----------------------------
+# The proven cascade (blitz -> BFS -> planner -> coder) is the TEACHER; the
+# blackboard (brain/blackboard.py) is the shared scratchpad the teachers write
+# lessons to and students read seeds from. All of this is env-gated V21_BLACKBOARD
+# (default OFF) so the verified corpus and offline guard are never at risk: reads
+# only ADD verify+shortest-gated candidates, writes only append lessons to a
+# per-game JSON that no committed solution depends on. The helpers below are PURE
+# (no engine import) so test_offline can exercise them; the engine replay of a
+# seed lives in solve_game behind _verify.
+def _bb_enabled(env=None):
+    env = os.environ if env is None else env
+    return env.get("V21_BLACKBOARD", "0") in ("1", "true", "True")
+
+
+def _bb_open(gid, env=None):
+    """Return a Blackboard for this game if V21_BLACKBOARD is on, else None.
+    Guarded: any import/load failure degrades to None (cascade unaffected)."""
+    if not _bb_enabled(env):
+        return None
+    try:
+        from brain.blackboard import Blackboard
+        return Blackboard(gid)
+    except Exception as e:
+        logger.debug("[%s] blackboard open failed: %s", gid, e)
+        return None
+
+
+def _bb_record_solution(bb, level, plan, source="cadence"):
+    """WRITE side: a verified winning plan becomes a Go-Explore fragment (seed for
+    similar/sibling levels) plus per-action effects (every action on a winning path
+    counts as `changed`; the terminal action counts as `won`). Pure — no engine."""
+    if bb is None or not plan:
+        return bb
+    try:
+        bb.teach_fragment(plan, level=level, reached=level + 1, source=source)
+        last = len(plan) - 1
+        for i, step in enumerate(plan):
+            action = step[0] if isinstance(step, (list, tuple)) else step
+            bb.teach_action_effect(action, changed=True, won=(i == last), source=source)
+    except Exception as e:
+        logger.debug("blackboard write failed (L%s): %s", level, e)
+    return bb
+
+
+def _bb_seed_candidates(bb, level):
+    """READ side (candidate ordering): verified fragments to REPLAY-then-verify on
+    the wall first, shortest-first, same-level preferred. Pure — the actual replay
+    is `_verify(solver, level, seed)` in solve_game. Empty list if bb is None."""
+    if bb is None:
+        return []
+    try:
+        return bb.seed_plans(level)
+    except Exception:
+        return []
+
+
+def _toddler_enabled(env=None):
+    env = os.environ if env is None else env
+    return env.get("V21_TODDLER", "0") in ("1", "true", "True")
+
+
+def _toddler_order(bb, gid, level, avail, frame=None, env=None):
+    """C3 toddler action ordering for the search callers (Go-Explore Stage-3.45).
+    When V21_TODDLER is on, blend the blackboard's ONLINE action_effects with the
+    shipped corpus `IntuitionPrior` behind the fixed `order_actions` interface and
+    return the candidate actions in `avail` best-first. Degrades to None (caller
+    keeps its existing `bb.action_order`/canonical order) when the flag is off,
+    the blackboard is absent, or anything fails — never invents actions, never
+    raises. Pure enough to unit-test without the engine (pass `frame=None`)."""
+    if not _toddler_enabled(env) or bb is None:
+        return None
+    try:
+        from brain.toddler import Toddler
+        prior = None
+        try:
+            import intuition
+            prior = intuition.IntuitionPrior(os.path.join(HERE, "intuition_prior.json"))
+        except Exception:
+            prior = None
+        order = Toddler(blackboard=bb, prior=prior).order_actions(
+            game=gid, frame=frame, actions=list(avail))
+        return [a for a in order if a in avail] or None
+    except Exception as e:
+        logger.debug("[%s] toddler order failed: %s", gid, e)
+        return None
 
 
 # ---- Stage-3.5 runtime code-writer (BACKLOG #3) -------------------------------
@@ -349,6 +482,76 @@ def _brain_planner_for_solver(solver, level_idx):
     macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))
     return planner.plan_in_model_macro(start, avail, _clone, _play, _hash,
                                        goal=level_idx + 1, max_states=budget, max_macro=macro)
+
+
+def _goexplore_for_solver(solver, level_idx, bb=None):
+    """Stage-3.45 (Epic C1): cell-archive Go-Explore over the engine as the trusted
+    white-box model, from this level's re-rooted start. Same {'g','f'} state as the
+    brain planner, but dedup is on a COARSE downsampled-frame cell (blackboard
+    `cell_key`) instead of the exact frame hash — so ls20 L5's corridors merge into
+    a small archive we can return-to instead of a 19k-state frontier. When a
+    blackboard is open its toddler `action_order` steers and its verified fragments
+    prime the archive. Returns an UNVERIFIED plan (caller verifies + shortest-gates)
+    or None. Engine imports are lazy (Mac-only)."""
+    import numpy as np
+    from combined_agent import ActionInput, GameAction
+    from brain import planner
+    from brain import blackboard as _BB
+
+    res = None
+    try:
+        res = solver._make_start_state(level_idx)
+    except Exception:
+        res = None
+    if res is None:
+        return None
+    game, f0 = res
+    avail = [a for a in (getattr(game, "_available_actions", []) or []) if a <= 5]
+    if not avail:
+        avail = [1, 2, 3, 4, 5]
+
+    def _clone(s):
+        return {"g": solver._restore(solver._snap(s["g"])), "f": s["f"]}
+
+    def _play(s, step):
+        aid, data = step
+        ai = (ActionInput(id=GameAction.from_id(aid), data=data) if data
+              else ActionInput(id=GameAction.from_id(aid)))
+        r = s["g"].perform_action(ai, raw=True)
+        if getattr(r, "frame", None):
+            s["f"] = np.array(r.frame[-1])
+        return int(getattr(r, "levels_completed", 0) or 0)
+
+    def _cell(s):
+        f = np.asarray(s["f"]).copy()
+        if f.ndim == 2 and f.shape[0] > 4:            # mask status bars before coarsening
+            f[:2] = 0; f[-2:] = 0
+        return _BB.cell_key(f, bins=int(os.environ.get("V21_GOEXPLORE_BINS", "8")))
+
+    # toddler order + seeds from the shared scratchpad, when the blackboard is on
+    a_order = None
+    seeds = None
+    if bb is not None:
+        # C3 toddler (V21_TODDLER): corpus-prior + online action_effects, frame-aware.
+        # Falls back to the raw blackboard action_order when the toddler is off/None.
+        a_order = _toddler_order(bb, getattr(bb, "game", None), level_idx, avail, frame=f0)
+        if a_order is None:
+            try:
+                a_order = [a for a in bb.action_order(level_idx) if a in avail]
+            except Exception:
+                a_order = None
+        try:
+            seeds = bb.seed_plans(level_idx)
+        except Exception:
+            seeds = None
+
+    start = {"g": game, "f": np.asarray(f0)}
+    budget = int(os.environ.get("V21_PLANNER_STATES", "200000"))
+    macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))
+    return planner.plan_in_model_goexplore(start, avail, _clone, _play, _cell,
+                                           goal=level_idx + 1, max_states=budget,
+                                           max_macro=macro, action_order=a_order,
+                                           seed_plans=seeds)
 
 
 def _runtime_coder_for_solver(solver, level_idx, llm, max_len):

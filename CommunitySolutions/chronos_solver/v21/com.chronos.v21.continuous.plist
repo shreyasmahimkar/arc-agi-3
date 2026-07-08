@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS LaunchAgent: runs the v21 cadence BACK-TO-BACK (never idle).
+     KeepAlive relaunches run_cadence.sh the instant the previous pass exits,
+     so the Mac is always solving. ThrottleInterval sets a minimum gap between
+     (re)launches, which also stops a runaway crash-loop if a pass errors out
+     instantly. Install via install_launchd_continuous.sh. This REPLACES the 4h
+     calendar agent — do not load both at once (they would double-run). -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.chronos.v21.continuous</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v21/run_cadence.sh</string>
+  </array>
+
+  <!-- back-to-back: relaunch as soon as the previous run exits, regardless of exit code -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- start immediately on load / at login -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- minimum seconds between (re)launches. launchd's floor is 10s; 60s gives the
+       filesystem, git, and Ollama a brief breather and caps a crash-loop to 1/min. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <!-- keep the machine usable: mild deprioritization so the UI stays responsive.
+       Remove this line if you want the cadence to grab full CPU. Do NOT set
+       ProcessType=Background here — macOS would heavily throttle the compute. -->
+  <key>Nice</key>
+  <integer>5</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v21/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/shreyas/gitrepos/OpenSource/kaggle/arc3/CommunitySolutions/chronos_solver/v21/logs/launchd.err.log</string>
+</dict>
+</plist>

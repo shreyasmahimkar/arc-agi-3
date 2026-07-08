@@ -80,6 +80,28 @@ def plan_in_model_macro(start_state, actions, clone, play, hash_fn, goal=1,
                             click_targets=click_targets)
 
 
+def plan_in_model_goexplore(start_state, actions, clone, play, cell_fn, goal=1,
+                            max_states=200000, max_macro=64, click_targets=None,
+                            action_order=None, seed_plans=None):
+    """DEEP-corridor planner skill via cell-archive Go-Explore (Epic C1, the ls20
+    L5-L6 lever). Where `plan_in_model_macro` dedups on the exact frame hash and so
+    still lets ls20 L5's corridors blow the frontier up, this keeps one
+    representative per COARSE `cell_fn(state)` cell and returns to promising cells —
+    the archive stays small while reach grows. Optional `action_order` (toddler
+    intuition) and `seed_plans` (blackboard fragments) steer/prime the search.
+    Delegates to the pure `ladder.go_explore`; returns the shortest winning plan
+    [(action_id, data), ...] or None. Same mutation-style contract as
+    `plan_in_model_macro`, but with `cell_fn` (coarse) in place of `hash_fn`."""
+    try:
+        import ladder
+    except Exception:                       # packaged import fallback
+        from .. import ladder               # type: ignore
+    return ladder.go_explore(start_state, clone, play, actions, cell_fn, goal,
+                             max_states=max_states, max_macro=max_macro,
+                             click_targets=click_targets,
+                             action_order=action_order, seed_plans=seed_plans)
+
+
 def execute_and_verify(plan, real_play, model_predict, observe,
                        compare=None, goal_completed=1):
     """Model-predictive execution of `plan` in the real environment.
