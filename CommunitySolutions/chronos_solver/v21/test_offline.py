@@ -72,6 +72,46 @@ def main():
     ok &= _check("runtime_coder: numpy frame[y,x] indexing does not crash",
                  _wm is not None and _plans == [[(1, None)], [(2, None)]])
 
+    # 5a2) Perception-first coder digest (BACKLOG R6+R8): brain.summarize.digest
+    #      replaces the raw-grid `{obs}` block behind V21_CODER_DIGEST. Must name
+    #      each component, losslessly recall the action->outcome table, stay
+    #      bounded, and be deterministic; the runtime `observations` contract is
+    #      unchanged (only the prompt text differs).
+    from brain import summarize as _SUM
+    _obs = {
+        "level": 2,
+        "available_actions": [1, 2, 6],
+        # two separate 1-cell blobs of colour 3 on a 0-background 4x4 frame
+        "frame": [[0, 0, 0, 0], [0, 3, 0, 0], [0, 0, 0, 0], [0, 0, 3, 0]],
+        "transitions": [
+            {"action": 1, "levels_completed": 0, "changed": False},
+            {"action": 6, "levels_completed": 0, "changed": True},
+        ],
+    }
+    _dg = _SUM.digest(_obs)
+    ok &= _check("digest reports scene + both components",
+                 "n_objects=2" in _dg and "#0" in _dg and "#1" in _dg)
+    ok &= _check("digest losslessly recalls action->outcome table",
+                 "a1 -> changed=False" in _dg and "a6 -> changed=True" in _dg)
+    ok &= _check("digest is length-bounded on a large many-object frame",
+                 len(_SUM.digest({"frame": [[(r + c) % 15 for c in range(64)]
+                                            for r in range(64)],
+                                  "available_actions": [1, 2, 3, 4, 5, 6, 7]},
+                                 max_chars=2000)) <= 2000)
+    ok &= _check("digest deterministic (same input -> same output)",
+                 _SUM.digest(_obs) == _dg)
+    ok &= _check("digest never raises on a bare ndarray-less frame / empty obs",
+                 isinstance(_SUM.digest({}), str)
+                 and isinstance(_SUM.digest([[0, 1], [1, 0]]), str))
+    # _obs_block honours the env flag and falls back to raw fmt when OFF/on error
+    os.environ["V21_CODER_DIGEST"] = "1"
+    ok &= _check("_obs_block uses digest when V21_CODER_DIGEST=1",
+                 "n_objects" in rc._obs_block(_obs))
+    os.environ["V21_CODER_DIGEST"] = "0"
+    ok &= _check("_obs_block uses raw fmt when flag OFF",
+                 "n_objects" not in rc._obs_block(_obs))
+    os.environ.pop("V21_CODER_DIGEST", None)
+
     # 5b) Stage-3.5 replay_wins (BACKLOG #3): pure fork-replay over injected
     #     clone/play closures — the try_plan_fn contract cadence_runner wires in.
     def _clone(s):

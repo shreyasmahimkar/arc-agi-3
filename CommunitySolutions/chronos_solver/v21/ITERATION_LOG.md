@@ -6,6 +6,30 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08] **item R6+R8 — perception-first coder digest (V21_CODER_DIGEST)** — CODE branch:
+  newest COMPLETE Mac run 20260708T062047Z is the **4th consecutive FLAT** run (RHAE 1.0/1.0/1.0;
+  ls20 L5/L6, ft09 L2-L5, vc33 L4-L6 all still UNSOLVED, improved=false on all 3 games). CRITICAL:
+  062043Z is the FIRST run that actually includes BOTH the runner-wired brain-planner (7c6c743)
+  AND the coerce_obs fix (ef38757), so the planner-fix is now VALIDATED and it did NOT crack a
+  wall — the flatness is no longer excused by predating a fix. Log diagnosis: post-BFS
+  wall-crackers only get real time on the SHALLOWEST unsolved wall per game (ls20 L5 got ~3.5min
+  planner+~60s coder; ft09 L2 ~50s; vc33 L4 ~48s), while deeper walls (ls20 L6, ft09 L3-L5, vc33
+  L5-L6) error out in <0.2s because `_make_start_state` can't chain past an unsolved prior level —
+  correct behaviour for sequential games (crack L5 -> unlocks L6), so the real question is why the
+  coder fails on the shallowest walls. Per R8 (arXiv:2512.21329) ~80% of coder failures on these
+  are PERCEPTION, not reasoning, and today the coder is fed a RAW serialized grid (`_fmt` ->
+  np.array2string). CHANGE: new pure `brain/summarize.py::digest()` builds a bounded, deterministic,
+  perception-first scene description (B1 connected-component objects + click targets + a lossless
+  action->outcome table from `transitions`); `runtime_coder._obs_block` swaps it into the `{obs}`
+  prompt block behind `V21_CODER_DIGEST` (default OFF), fully guarded (any error -> raw `_fmt`), and
+  the runtime `observations` contract is untouched (only prompt text changes). Verified: py_compile
+  (runtime_coder/summarize/cadence_runner/test_offline) OK; `test_offline.py` GREEN with 7 new
+  digest checks (names both components, lossless action->outcome recall, length-bounded on a 64x64
+  frame, deterministic, never-raises on empty/bare-frame, env-flag on/off routing). No v19/solutions
+  touched -> SKIP_LS20_GUARDRAIL=1. Commit cd0bb55. Expected next Mac run: default UNCHANGED; set
+  `V21_CODER_DIGEST=1` (with `V21_RUNTIME_CODER=1` + local Qwen) so the coder reads objects-by-
+  identity on ls20 L5 / ft09 L2 / vc33 L4 and can reference a scene it previously couldn't parse.
+
 - [2026-07-08] **runtime_coder robustness — fix `frame[y, x]` candidate_plans crash (ft09
   wall)** — CODE branch: newest COMPLETE Mac run 20260708T043528Z (3rd FLAT: RHAE 1.0/1.0/1.0,
   all walls still UNSOLVED). NOTE: 043528Z started 00:35:24-04:00, exactly 68s BEFORE last

@@ -13,7 +13,7 @@
 #   try_plan_fn(plan)     -> True if the plan WINS the level on a fresh fork
 #                            (plan = list of (action_id:int, data:dict|None))
 # =====================================================================
-import logging, signal, textwrap, builtins as _bi
+import logging, os, signal, textwrap, builtins as _bi
 
 logger = logging.getLogger("v21.runtime_coder")
 
@@ -144,7 +144,7 @@ class RuntimeCoder:
         for attempt in range(self.max_refine + 1):
             llm_plans = []
             try:
-                prompt = WM_PROMPT.format(obs=_fmt(observations)) + \
+                prompt = WM_PROMPT.format(obs=_obs_block(observations)) + \
                          (f"\n\nPrevious attempt failed: {feedback}\nFix it." if feedback else "")
                 code = self.llm.complete(prompt, system=WM_SYSTEM, max_tokens=1200,
                                          stop=["```end", "\n\n\n"])
@@ -269,3 +269,21 @@ def _fmt(observations):
         pass
     s = str(observations)
     return s[:2000]
+
+
+def _obs_block(observations):
+    """The `{obs}` section of the coder prompt. Default = the raw grid dump
+    (`_fmt`). With V21_CODER_DIGEST=1, use a perception-first symbolic scene
+    digest (brain.summarize) instead — R6/R8: ~80% of coder failures on these
+    walls are perception, not reasoning, and a raw serialized grid is the hard
+    format. Fully guarded: any digest error falls back to `_fmt`, so the change
+    can never break the coder path."""
+    if os.environ.get("V21_CODER_DIGEST", "0") in ("1", "true", "True"):
+        try:
+            from brain import summarize
+            d = summarize.digest(observations)
+            if d:
+                return d
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug("[coder] digest failed, using raw fmt: %s", e)
+    return _fmt(observations)

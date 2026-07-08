@@ -197,6 +197,13 @@ R6. **Orchestrator + subagents with COMPRESSED-summary context control** (Symbol
     completing (not stalling/OOM) on a deep wall where it previously timed out — ties into the
     160000Z stall root-cause. Do NOT adopt their multi-agent SDK wholesale (heavy dep, network);
     port only the summary-compression idea into the existing single-coder path.
+    [CODED + offline-verified 2026-07-08] `brain/summarize.py::digest()` (pure, imports only
+    brain.perception) + `runtime_coder._obs_block` swap the raw-grid `{obs}` block for a bounded,
+    deterministic, perception-first digest behind `V21_CODER_DIGEST` (default OFF) — implements R6
+    (bounded context) AND R8 (perception-first schema) in ONE env flag. 7 offline checks; see
+    ITERATION_LOG. *Remaining:* a Mac cadence with `V21_CODER_DIGEST=1` (+ `V21_RUNTIME_CODER=1`,
+    local Qwen) that yields a coder plan on ls20 L5 / ft09 L2 / vc33 L4 where the raw-grid prompt
+    did not.
 R7. **Workspace optimization: evolve the persistent substrate, not the weights** (NVIDIA/Technion
     *DREAMTEAM*, arXiv:2605.09650, "Workspace Optimization: How to Train Your Agent"; abs
     https://arxiv.org/abs/2605.09650 ). Integrated 2026-07-07 RESEARCH-3 cycle — NEW vs R1–R6, and
