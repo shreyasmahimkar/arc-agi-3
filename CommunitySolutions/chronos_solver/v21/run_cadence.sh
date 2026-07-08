@@ -16,6 +16,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # so `ollama` is found un
 # --- wall-cracking features (defaults ON; override in the environment) ---------
 export V21_BLITZ="${V21_BLITZ:-1}"            # Stage-0 cheap-win probe (blitz.py)
 export V21_EVOLVE_PROBE="${V21_EVOLVE_PROBE:-1}"   # let evolve actually PROMOTE (live rollout)
+export V21_BRAIN_PLANNER="${V21_BRAIN_PLANNER:-1}"  # Stage-3.4 Go-Explore/macro-BFS: collapses ls20 L5-L6 corridors that plain BFS can't reach in budget (macro REACH, not depth). Pure white-box search, no model needed; verify+shortest-gated. Runs before runtime_coder for UNSOLVED walls.
 export V21_RUNTIME_CODER="${V21_RUNTIME_CODER:-1}" # on-the-fly WM writer ON (Qwen writes code for BFS/blitz-blocked walls)
 export V21_BRAIN_PERCEPTION="${V21_BRAIN_PERCEPTION:-1}" # B1: perception connected-component click targets (one per blob) for vc33 same-colour walls
 

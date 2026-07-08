@@ -45,8 +45,14 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    `cadence_runner._brain_planner_for_solver` Stage-3.4 over the white-box engine for UNSOLVED
    walls, env-gated `V21_BRAIN_PLANNER` (default OFF), verify+shortest-gated. +2 offline checks.
    Confirmed by run 011103Z: plain BFS timed out on ls20 L5 (57k states/600s) — macro reach is
-   the missing ingredient, not depth. *Still needed for the win:* a Mac cadence with
-   `V21_BRAIN_PLANNER=1` (+ `V21_RESOLVE_SOLVED=1`) registering `levels_completed>=6`.
+   the missing ingredient, not depth.
+   [RUNNER-WIRED 2026-07-08] Root-caused the 2nd FLAT run (025330Z): the Stage-3.4 planner was
+   coded but `V21_BRAIN_PLANNER` was never exported in `run_cadence.sh`, so it never fired on the
+   Mac. Added `export V21_BRAIN_PLANNER=1` to the runner's wall-cracking block (before RUNTIME_CODER).
+   Budget-reserve (skip-re-BFS of solved L0-L4) is already active by default, so V21_RESOLVE_SOLVED
+   is intentionally left OFF. *Still needed for the win:* the NEXT Mac cadence should now actually
+   run the macro planner on ls20 L5/L6 and register `levels_completed>=6`; if still flat, add the
+   L4-end-state suffix-BFS seed or the R13 Opus teacher.
 5. **ft09 L2–L5.** Investigate mechanics (these aren't blind like L0); deepen BFS/graph budget,
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in

@@ -6,6 +6,28 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08] **item #4 (P1) — WIRE the Stage-3.4 brain-planner into the Mac runner
+  (root-cause of the FLAT streak)** — Mac run 20260708T025330Z was the SECOND consecutive FLAT
+  run (identical to 011103Z: RHAE 1.0/1.0/1.0, walls ls20 L5/L6 + ft09 L2-L5 + vc33 L4-L6 all
+  still UNSOLVED). Root cause found: the Stage-3.4 macro-BFS planner committed last cycle (the
+  diagnosed "macro REACH, not depth" fix for ls20's corridors) is env-gated `V21_BRAIN_PLANNER`
+  default OFF and was NEVER exported in `run_cadence.sh` — so it never fired on the Mac (grep of
+  cron_20260708T025326Z.log shows zero brain-planner lines; ls20 L5 just BFS-timed-out at 57k
+  states then went straight to runtime_coder which failed in ~46s). Every other wall-cracker
+  (V21_BLITZ / V21_EVOLVE_PROBE / V21_RUNTIME_CODER / V21_BRAIN_PERCEPTION) is defaulted ON in the
+  runner; the planner was simply omitted. **Change:** added
+  `export V21_BRAIN_PLANNER="${V21_BRAIN_PLANNER:-1}"` to `run_cadence.sh`'s wall-cracking block
+  (before RUNTIME_CODER, so the pure white-box macro search gets first crack at the corridor before
+  the LLM coder). No solver logic, no v19, no solutions touched — one-line runner wiring.
+  *Verified:* `bash -n run_cadence.sh` OK; `python3 test_offline.py` green (planner already had 2
+  offline checks: `plan_in_model_macro` collapses a 20-step corridor via macro edges); confirmed
+  the plist ProgramArguments invokes this exact script. *Expected next Mac run:* on ls20 L5/L6 (and
+  any UNSOLVED wall), after BFS times out the Stage-3.4 macro planner runs over the re-rooted engine
+  and should register `levels_completed>=6` for ls20 if a corridor-collapsing macro path exists —
+  breaking the FLAT streak. If still flat, the corridor needs the L4-end-state suffix-BFS seed
+  (item #4 remaining) or the Opus teacher (R13). NOTE: deliberately did NOT set V21_RESOLVE_SOLVED=1
+  (default OFF already reserves per-level budget for the walls by skipping re-BFS of L0-L4).
+
 - [2026-07-08] **item #4 (P1) — Stage-3.4 brain-planner (Go-Explore / macro-BFS) for the
   ls20 L5-L6 corridor frontier** — Mac run 20260708T011103Z (budget=600s, qwen2.5-coder:7b) was
   FLAT vs 220316Z: same RHAE 1.0/1.0/1.0, no new wall (ls20 L5/L6, ft09 L2-L5, vc33 L4-L6 all
