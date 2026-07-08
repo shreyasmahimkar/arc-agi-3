@@ -6,6 +6,25 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08] **runtime_coder robustness — fix `frame[y, x]` candidate_plans crash (ft09
+  wall)** — CODE branch: newest COMPLETE Mac run 20260708T043528Z (3rd FLAT: RHAE 1.0/1.0/1.0,
+  all walls still UNSOLVED). NOTE: 043528Z started 00:35:24-04:00, exactly 68s BEFORE last
+  cycle's brain-planner fix (7c6c743, committed 00:36:32-04:00) — so it predates the fix; the
+  planner fix is still PENDING its first real test on the currently-running 062043Z run (log at
+  ls20 L5 BFS as of this cycle, planner branch not yet reached). Did NOT re-touch the planner
+  (already in place, awaiting validation). Instead fixed a distinct, verifiable defect visible in
+  cron_043524Z.log line 34: `[coder] llm/candidate_plans failed: list indices must be integers or
+  slices, not tuple` on ft09 L2 — the LLM WorldModel indexes the frame numpy-style (`frame[y,x]`)
+  but the harness handed it a Python list, crashing the whole coder attempt. FIX: added
+  `_coerce_obs()` to convert `observations['frame']` to `np.ndarray` before `WorldModel(...)` (numpy
+  supports both `frame[y,x]` and `frame[y][x]`, so list-style code still works — strictly additive);
+  updated WM_PROMPT to describe frame as a numpy array. Verified: `py_compile` OK on
+  runtime_coder.py + cadence_runner.py + test_offline.py; `test_offline.py` green (36 checks, added
+  "numpy frame[y,x] indexing does not crash"). No v19/solutions touched → SKIP_LS20_GUARDRAIL=1.
+  Commit ef38757. Expected next-run effect: on ft09 L2–L5 (and any wall reaching runtime_coder),
+  the LLM's candidate_plans no longer aborts on tuple-indexing, so its hypothesized plans actually
+  get tested instead of falling back to the safety net alone.
+
 - [2026-07-08] **item #4 (P1) — WIRE the Stage-3.4 brain-planner into the Mac runner
   (root-cause of the FLAT streak)** — Mac run 20260708T025330Z was the SECOND consecutive FLAT
   run (identical to 011103Z: RHAE 1.0/1.0/1.0, walls ls20 L5/L6 + ft09 L2-L5 + vc33 L4-L6 all
