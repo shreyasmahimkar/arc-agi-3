@@ -189,6 +189,23 @@ A second RESEARCH-branch scan (2026-07-07, RESEARCH-2) added one new mechanism
   the `runtime_coder`/planner prompt. This directly targets the 160000Z-style
   stall where the coder step times out/OOMs on a deep wall's growing context.
 
+A third RESEARCH-branch scan (2026-07-07, RESEARCH-3) added two mechanisms
+(BACKLOG R7–R8), distinct from R1–R6:
+
+- **Workspace optimization** (NVIDIA/Technion *DREAMTEAM*, arXiv:2605.09650;
+  38.4% on the 25-game public set — new SOTA over Symbolica's 36.08% — with 31%
+  fewer env actions). Since the frontier/coder weights are frozen, the *workspace*
+  (the files the agent reads/writes/tests) is the trainable object:
+  artifacts↔parameters, evidence↔data, counterexamples↔losses, feedback↔gradients.
+  Our corpus/champion/intuition/macro-bank already ARE that workspace; the concrete
+  add is persisting **failed-wall counterexamples** the next cycle's coder reads as
+  negative constraints, plus an **actions-per-solve** tie-breaker in evolve (R7).
+- **Perception bottleneck** (CMU et al., arXiv:2512.21329): ~80% of VLM ARC
+  failures are perception, not reasoning; a perception→description stage adds
+  +11–13pp. VALIDATES our exact connected-component perception (we sidestep the
+  VLM bottleneck) and motivates making the R6 coder digest **perception-first** — a
+  structured object/scene schema, not a serialized raw grid (R8).
+
 ---
 
 ## 6. Key references
@@ -214,7 +231,13 @@ A second RESEARCH-branch scan (2026-07-07, RESEARCH-2) added one new mechanism
   libraries.* arXiv:2310.19791. (Library learning / MDL refactor.)
 - LeCun / H-JEPA and follow-ups (2026): hierarchical latent predictive world
   models & planning in representation space — the neural-latent B8 slot.
-- *Perception bottleneck in abstract-reasoning benchmarks*, arXiv:2512.21329.
+- Wang, X. et al. (2026). *Your Reasoning Benchmark May Not Test Reasoning:
+  Revealing Perception Bottleneck in Abstract Reasoning Benchmarks.*
+  arXiv:2512.21329. (~80% of ARC failures are perception; perception→description
+  stage adds +11–13pp — validates symbolic connected-component perception — R8.)
+- NVIDIA / Technion (2026). *Workspace Optimization: How to Train Your Agent
+  (DREAMTEAM).* arXiv:2605.09650. (Evolve the read/write/test workspace as the
+  trainable substrate; 38.4% public-set SOTA, 31% fewer env actions — R7.)
 - Symbolica AI (2026). *Arcgentica: REPL/orchestrator agents for ARC-AGI-3.*
   Open-source `symbolica-ai/arcgentica` + `symbolica-ai/ARC-AGI-3-Agents`; blog
   https://www.symbolica.ai/blog/arc-agi-3 . (Orchestrator + compressed-summary

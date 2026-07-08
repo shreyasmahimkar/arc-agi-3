@@ -117,7 +117,7 @@ B8. **(Optional, far) Neural latent world model.** H-JEPA/Dreamer-style latent p
     in 4h increments — do NOT start until B2–B7 are solid and a training route exists.
 
 # =====================================================================
-# RESEARCH FEED — R1–R5 integrated 2026-07-07; R6 added 2026-07-07 (RESEARCH-2)
+# RESEARCH FEED — R1–R5 integrated 2026-07-07; R6 added (RESEARCH-2); R7–R8 added (RESEARCH-3)
 # Latest ARC-AGI-3 literature scanned (arXiv / ARC Prize / Kaggle). Each item is
 # ADDITIVE, env-gated when shipped, and slots into the proven cascade + brain.
 # These VALIDATE the current direction (executable world models + explore-first)
@@ -182,6 +182,47 @@ R6. **Orchestrator + subagents with COMPRESSED-summary context control** (Symbol
     completing (not stalling/OOM) on a deep wall where it previously timed out — ties into the
     160000Z stall root-cause. Do NOT adopt their multi-agent SDK wholesale (heavy dep, network);
     port only the summary-compression idea into the existing single-coder path.
+R7. **Workspace optimization: evolve the persistent substrate, not the weights** (NVIDIA/Technion
+    *DREAMTEAM*, arXiv:2605.09650, "Workspace Optimization: How to Train Your Agent"; abs
+    https://arxiv.org/abs/2605.09650 ). Integrated 2026-07-07 RESEARCH-3 cycle — NEW vs R1–R6, and
+    currently the highest public-set score we've seen: **38.4% on the 25-game set (up from Symbolica's
+    36.08%) using 31% FEWER environment actions per game.** Core idea maps almost 1:1 onto our loop:
+    since a frozen frontier/coder model can't be weight-trained, treat the agent's *workspace* (the
+    structured files it reads/writes/tests) as the trainable object, mirroring weight-space training —
+    **artifacts↔parameters, evidence↔data, counterexamples↔losses, textual feedback↔gradients.** Our
+    corpus/`champion.json`/`intuition_prior.json`/macro-bank ARE the artifacts, the scorecard +
+    recorded transitions ARE the evidence, the regression gate + UNSOLVED walls ARE the
+    counterexamples, and ITERATION_LOG/cron notes ARE the textual-feedback "gradient." *Action (two
+    concrete, additive, env-gated adds):* (a) after each Mac run, `evolve` writes failed-wall
+    transcripts as **counterexample artifacts** (`brain/wm/<game>/counterexamples.jsonl`: the wall,
+    the tried plan, why it failed) that the NEXT cycle's `runtime_coder`/planner reads as
+    negative-constraint context ("don't repeat these dead ends") — env `V21_WORKSPACE_COUNTEREX`
+    (default OFF); pure + offline-testable (assert the coder prompt excludes a recorded dead-end
+    action). (b) Adopt their **action-frugality objective**: in the shortest-plan/evolve scoring,
+    tie-break challengers by env-actions-per-solve so the workspace evolves toward the 31%-fewer-
+    actions regime (extends R4's quadratic-RHAE pressure). Slots into `evolve` + `runtime_coder`
+    Stage-3.5 + brain `memory`; do NOT pull the DREAMTEAM multi-agent harness (network/heavy) — port
+    only the workspace-as-trainable-substrate discipline. *Done when:* a Mac cadence shows a wall the
+    coder previously failed is not re-tried down the same dead end (counterexample recall), or a
+    challenger promotes on equal-RHAE-but-fewer-actions.
+R8. **Perception is the real bottleneck — feed the coder a symbolic scene description, not raw grids**
+    (CMU/UMich/UCSD/UIUC, arXiv:2512.21329, "Your Reasoning Benchmark May Not Test Reasoning:
+    Revealing Perception Bottleneck in Abstract Reasoning Benchmarks"; abs
+    https://arxiv.org/abs/2512.21329 ). Integrated 2026-07-07 RESEARCH-3 cycle — NEW vs R1–R7.
+    Controlled two-stage experiments show **~80% of VLM ARC failures are PERCEPTION errors, not
+    reasoning**, and inserting a dedicated perception→natural-language stage before the reasoning
+    model gives +11–13pp (up to 2.5× on Mini-ARC). Strong external VALIDATION of our design choice:
+    v21 already parses frames with exact connected-component perception (B1) instead of a VLM, so we
+    *sidestep* the perception bottleneck entirely — the paper argues that's exactly where the wins
+    are. *Action:* make R6's `V21_CODER_DIGEST` digest **perception-first** — the digest the coder
+    reads should be a structured scene description built from B1's `perception.py` objects
+    (per-object colour/size/bbox/centroid + frame-diff deltas + tried-action→object-change table),
+    NOT a serialized raw grid (the paper shows serialized grids are the hard format even for humans).
+    This is a refinement of R6 (same env flag `V21_CODER_DIGEST`), not a new subsystem: swap the
+    digest's representation from raw-grid to perception-object schema. Pure + offline-testable (assert
+    the digest names each component and its post-action delta over a mock transition log). *Done when:*
+    on a wall, the perception-object digest lets the coder reference objects by identity and the
+    coder step yields a valid plan where the raw-grid digest did not.
 
 ## Stop condition
 All 20 levels across the 3 games solved + verified at RHAE 1.0 (or the highest reachable),
