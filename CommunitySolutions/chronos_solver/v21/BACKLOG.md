@@ -365,6 +365,15 @@ C1 (=T1). **Go-Explore intuitive search** — upgrade `ladder.macro_bfs` to a ce
 C2 (=T2, subsumes B2). **Persistent executable world model** — `brain/wm/<gid>/` verified vs
     recorded transitions, MDL-refactored, reused across runs; teaches world_facts. Env `V21_WORLD_MODEL`.
     *Done when:* a persisted model reproduces a solved level's transitions and seeds a solve next run.
+    [SUBSTRATE CODED + offline-verified 2026-07-08, commit 5924dad] `brain/world_model.py` now ships the
+    persistence substrate atop the existing verifier: `build_tabular_model(records)` (trusted-by-
+    construction executable WM — reproduces every recorded (state,action)->next), `mdl_refactor` (collapse
+    to the SHORTEST equivalent rule: identity/constant, Rodionov 2026), pure `predict_from_model`, and
+    on-disk `wm_dir`/`save_model`/`load_model` at `brain/wm/<game>/model.json` (atomic, canonical JSON).
+    Pure/dependency-free; +5 offline checks (reproduce/None-unseen/MDL-identity/persist-reload-reuse/absent).
+    *Remaining:* WIRE into `cadence_runner.solve_game` behind env `V21_WORLD_MODEL` (default OFF) — record
+    live transitions on a solved wall -> build+mdl_refactor+save -> on the NEXT run load + verify_model
+    against fresh transitions and seed the planner from the trusted model; Mac cadence to confirm reuse.
 C3 (=T3, subsumes B8/R9/R11). **Intuitive brain / toddler** — frame-change/action scorer
     (self-supervised online from action_effects first; StochasticGoose-lite CNN / TRM later) behind
     the fixed `IntuitionPrior.order_actions` interface; guides C1. Env `V21_TODDLER`.
