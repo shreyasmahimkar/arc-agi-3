@@ -40,6 +40,13 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    220311Z burned ~1686s re-solving L0–L4 before L5 even started). See ITERATION_LOG for commit.
    *Still needed for the win:* L5 depth exceeds plain BFS — pair the reserved budget with
    `V21_RUNTIME_CODER=1` (Go-Explore/coder) or a seeded suffix-BFS from the L4 end state.
+   [GO-EXPLORE STAGE-3.4 DONE 2026-07-08] `brain/planner.plan_in_model_macro` (→ committed
+   `ladder.macro_bfs`: corridor-collapsing macro edges + single-step precision) wired as
+   `cadence_runner._brain_planner_for_solver` Stage-3.4 over the white-box engine for UNSOLVED
+   walls, env-gated `V21_BRAIN_PLANNER` (default OFF), verify+shortest-gated. +2 offline checks.
+   Confirmed by run 011103Z: plain BFS timed out on ls20 L5 (57k states/600s) — macro reach is
+   the missing ingredient, not depth. *Still needed for the win:* a Mac cadence with
+   `V21_BRAIN_PLANNER=1` (+ `V21_RESOLVE_SOLVED=1`) registering `levels_completed>=6`.
 5. **ft09 L2–L5.** Investigate mechanics (these aren't blind like L0); deepen BFS/graph budget,
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in

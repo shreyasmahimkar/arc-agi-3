@@ -308,6 +308,42 @@ def main():
     plan = PL.plan_in_model(0, [1], lambda s, a: s + a, lambda s: s == 3, max_depth=8)
     ok &= _check("planner.plan_in_model finds shortest plan in model",
                  plan == [1, 1, 1])
+    #   plan_in_model_macro (B3, ls20 L5-L6 frontier): a long "corridor" where the
+    #   goal sits at position 20. Single-step BFS would need depth 20; a MACRO edge
+    #   (action 1 repeated until the state stops changing) collapses the corridor
+    #   into one push. State = pos; action 1 = +1 up to a wall at 20 (then no change,
+    #   so the macro terminates). goal=1 means levels_completed>=1, reached at pos==20.
+    def _mk_corridor():
+        # mutable state carried in a 1-elem list so clone/play match the engine style
+        def clone(s): return [s[0]]
+        def play(s, step):
+            aid, _ = step
+            if aid == 1 and s[0] < 20:
+                s[0] += 1
+            return 1 if s[0] == 20 else 0   # levels_completed
+        def hfn(s): return s[0]
+        return clone, play, hfn
+    _cl, _pl, _hf = _mk_corridor()
+    mplan = PL.plan_in_model_macro([0], [1], _cl, _pl, _hf, goal=1,
+                                   max_states=5000, max_macro=64)
+    ok &= _check("planner.plan_in_model_macro collapses a 20-step corridor via macro",
+                 mplan is not None and len(mplan) == 20
+                 and all(step == (1, None) for step in mplan))
+    #   and it returns None when the goal is unreachable (wall before goal)
+    def _mk_blocked():
+        def clone(s): return [s[0]]
+        def play(s, step):
+            aid, _ = step
+            if aid == 1 and s[0] < 10:      # wall at 10, goal needs 20 -> impossible
+                s[0] += 1
+            return 1 if s[0] == 20 else 0
+        def hfn(s): return s[0]
+        return clone, play, hfn
+    _cl2, _pl2, _hf2 = _mk_blocked()
+    mplan2 = PL.plan_in_model_macro([0], [1], _cl2, _pl2, _hf2, goal=1,
+                                    max_states=5000, max_macro=64)
+    ok &= _check("planner.plan_in_model_macro returns None when goal unreachable",
+                 mplan2 is None)
     #   executor: model predicts frames "1","2","3"; real diverges at step 2
     #   (returns "2","BAD") -> mismatch_at == 1, not won.
     seqp = iter(["1", "2", "3"])

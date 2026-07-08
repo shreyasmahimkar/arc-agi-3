@@ -225,6 +225,21 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         if sol and _verify(solver, lvl, sol) and (best_len is None or len(sol) < best_len):
             best, best_len, improved = sol, len(sol), True
             corpus[lvl] = sol
+        # Stage-3.4 BRAIN PLANNER (Epic B3): Go-Explore/macro-BFS over the engine
+        # (the trusted white-box model) from this level's re-rooted start — collapses
+        # ls20's long corridors that plain BFS can't reach in budget. Only for still-
+        # UNSOLVED walls; env-gated V21_BRAIN_PLANNER (default OFF); verified+shortest-
+        # gated below. This is the ls20 L5–L6 frontier.
+        if best is None and os.environ.get("V21_BRAIN_PLANNER", "0") in ("1", "true", "True"):
+            try:
+                psol = _brain_planner_for_solver(solver, lvl)
+            except Exception as e:
+                psol = None
+                logger.debug("[%s L%d] brain planner error: %s", gid, lvl, e)
+            if psol and _verify(solver, lvl, psol):
+                best, best_len, improved = psol, len(psol), True
+                corpus[lvl] = psol
+                logger.info("[%s L%d] BRAIN_PLANNER solved in %d actions", gid, lvl, len(psol))
         # Stage-3.5 runtime code-writer (BACKLOG #3): last resort — only for still
         # UNSOLVED wall levels after blitz + BFS both fail. The local Qwen writes a
         # WorldModel from the observed transitions and proposes shortest-first plans;
@@ -285,6 +300,55 @@ def _get_runtime_llm():
         logger.warning("[coder] backend unavailable: %s", e)
         _RUNTIME_LLM = None
     return _RUNTIME_LLM
+
+
+def _brain_planner_for_solver(solver, level_idx):
+    """Stage-3.4: Go-Explore/macro-BFS (brain B3) over the engine as the trusted
+    white-box model, from this level's re-rooted start. State = {'g':game,'f':frame}
+    so we can hash the frame for dedup; macro edges collapse ls20's corridors.
+    Returns a plan (UNVERIFIED — caller verifies + shortest-gates) or None.
+    Engine imports are lazy (Mac-only)."""
+    import hashlib
+    import numpy as np
+    from combined_agent import ActionInput, GameAction
+    from brain import planner
+
+    res = None
+    try:
+        res = solver._make_start_state(level_idx)
+    except Exception:
+        res = None
+    if res is None:
+        return None
+    game, f0 = res
+    avail = [a for a in (getattr(game, "_available_actions", []) or []) if a <= 5]
+    if not avail:
+        avail = [1, 2, 3, 4, 5]
+
+    def _clone(s):
+        return {"g": solver._restore(solver._snap(s["g"])), "f": s["f"]}
+
+    def _play(s, step):
+        aid, data = step
+        ai = (ActionInput(id=GameAction.from_id(aid), data=data) if data
+              else ActionInput(id=GameAction.from_id(aid)))
+        r = s["g"].perform_action(ai, raw=True)
+        if getattr(r, "frame", None):
+            s["f"] = np.array(r.frame[-1])
+        return int(getattr(r, "levels_completed", 0) or 0)
+
+    def _hash(s):
+        f = s["f"]
+        fm = np.asarray(f).copy()
+        if fm.ndim == 2 and fm.shape[0] > 4:          # mask status bars (top/bottom 2 rows)
+            fm[:2] = 0; fm[-2:] = 0
+        return hashlib.md5(fm.tobytes()).hexdigest()[:16]
+
+    start = {"g": game, "f": np.asarray(f0)}
+    budget = int(os.environ.get("V21_PLANNER_STATES", "200000"))
+    macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))
+    return planner.plan_in_model_macro(start, avail, _clone, _play, _hash,
+                                       goal=level_idx + 1, max_states=budget, max_macro=macro)
 
 
 def _runtime_coder_for_solver(solver, level_idx, llm, max_len):

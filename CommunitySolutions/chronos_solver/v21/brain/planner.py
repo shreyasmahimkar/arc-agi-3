@@ -54,6 +54,32 @@ def plan_in_model(start_state, actions, transition, goal_reached, max_depth=64):
     return None
 
 
+def plan_in_model_macro(start_state, actions, clone, play, hash_fn, goal=1,
+                        max_states=200000, max_macro=64, click_targets=None):
+    """DEEP-corridor planner skill (B3, the ls20 L5–L6 frontier).
+
+    Single-step `plan_in_model` above cannot reach ls20 L5's depth (long keyboard
+    corridors blow up BFS). This variant plans over the trusted model with
+    Go-Explore / macro edges — the same action repeated until the state hash stops
+    changing collapses a whole corridor into one edge — while still offering single
+    steps so it can stop mid-corridor to turn. For WHITE-BOX games the engine IS
+    the trusted model, so this searches the real dynamics directly (unscored, on
+    forks). Delegates to the pure `ladder.macro_bfs`. Returns the shortest winning
+    plan [(action_id, data), ...] or None.
+
+    Contract (mutation-style, matches the engine):
+      clone(state) -> independent fork;  play(state, step) -> int levels_completed
+      (mutating the fork);  hash_fn(state) -> hashable dedup key.
+    """
+    try:
+        import ladder
+    except Exception:                       # packaged import fallback
+        from .. import ladder               # type: ignore
+    return ladder.macro_bfs(start_state, clone, play, actions, hash_fn, goal,
+                            max_states=max_states, max_macro=max_macro,
+                            click_targets=click_targets)
+
+
 def execute_and_verify(plan, real_play, model_predict, observe,
                        compare=None, goal_completed=1):
     """Model-predictive execution of `plan` in the real environment.

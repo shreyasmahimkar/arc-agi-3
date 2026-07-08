@@ -6,6 +6,22 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08] **item #4 (P1) — Stage-3.4 brain-planner (Go-Explore / macro-BFS) for the
+  ls20 L5-L6 corridor frontier** — Mac run 20260708T011103Z (budget=600s, qwen2.5-coder:7b) was
+  FLAT vs 220316Z: same RHAE 1.0/1.0/1.0, no new wall (ls20 L5/L6, ft09 L2-L5, vc33 L4-L6 all
+  still UNSOLVED). Diagnosis: BFS is exhausted on these walls, not budget-starved — ls20 L5 explored
+  57k states/600s (117k/1200s prior) and still timed out; the corridors need macro reach, not depth.
+  The 1200→600 budget drop (e663d4d) is intentional (faster CODE-branch signal). This cycle finished
+  + verified the prior uncommitted brain-planner work: `brain/planner.plan_in_model_macro` (delegates
+  to committed `ladder.macro_bfs` — corridor-collapsing macro edges + single-step precision) and
+  `cadence_runner._brain_planner_for_solver` wiring it as Stage-3.4 over the white-box engine for
+  UNSOLVED walls, env-gated `V21_BRAIN_PLANNER` (default OFF); also tightened `runtime_coder` WM
+  prompt (explicit obs-dict schema, `.get` guidance). Added 2 offline checks (macro collapses a
+  20-step corridor; returns None when unreachable). Verified: `py_compile` all changed .py +
+  `test_offline.py` green (35 checks). No v19/solutions touched → committed with SKIP_LS20_GUARDRAIL=1.
+  Expected next Mac run: with `V21_BRAIN_PLANNER=1` (+ `V21_RESOLVE_SOLVED` reserving budget), the
+  macro-BFS should reach ls20 L5/L6 depth that plain BFS cannot, registering levels_completed>=6.
+
 - [2026-07-07] **item #4 (P1) — reserve BFS budget for walls: stop re-solving corpus levels** —
   Mac run 20260707T220311Z (budget=1200s, model=qwen2.5-coder:7b-instruct-q4_K_M) IMPROVED over
   160000Z: ls20 L4 now SOLVED (43 actions, rhae 1.0; was a 600s timeout last run), also 1 shorter
