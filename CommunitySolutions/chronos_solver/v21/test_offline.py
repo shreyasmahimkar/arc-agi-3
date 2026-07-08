@@ -343,6 +343,37 @@ def main():
     ok &= _check("world_model verifier rejects a wrong model",
                  bad["accuracy"] == 0.0 and not WM.is_trusted(bad))
 
+    # 10b-2) C2 persistent executable world model substrate: a tabular model
+    #        reproduces recorded transitions BY CONSTRUCTION; the MDL pass
+    #        collapses an identity table to a compact rule; persistence to
+    #        brain/wm/<game>/ round-trips so a model learned this run is reused
+    #        next run (the C2 "seeds a solve next run" mechanism).
+    import tempfile as _tf, os as _os2
+    wm_recs = [([[0, 0]], (1, None), [[0, 1]]), ([[0, 1]], (1, None), [[0, 2]])]
+    wm_model = WM.build_tabular_model(wm_recs)
+    wm_rep = WM.verify_model(lambda p, a: WM.predict_from_model(wm_model, p, a), wm_recs)
+    ok &= _check("C2 tabular WM reproduces all recorded transitions",
+                 wm_rep["accuracy"] == 1.0 and WM.is_trusted(wm_rep))
+    ok &= _check("C2 tabular WM returns None on an unseen state",
+                 WM.predict_from_model(wm_model, [[9, 9]], (1, None)) is None)
+    #   identity records -> MDL refactor collapses table to a shorter rule that
+    #   still reproduces every record
+    _id_recs = [("x", "a", "x"), ("y", "b", "y")]
+    _id_model = WM.mdl_refactor(WM.build_tabular_model(_id_recs))
+    _id_rep = WM.verify_model(lambda p, a: WM.predict_from_model(_id_model, p, a), _id_recs)
+    ok &= _check("C2 MDL refactor detects identity + still reproduces",
+                 _id_model["kind"] == "identity" and _id_rep["accuracy"] == 1.0)
+    #   persist to brain/wm/<game>/ and reload -> same predictions next 'run'
+    _wmbase = _tf.mkdtemp()
+    _gd = WM.wm_dir(_wmbase, "ls20")
+    WM.save_model(_gd, wm_model)
+    _reloaded = WM.load_model(_gd)
+    _rep2 = WM.verify_model(lambda p, a: WM.predict_from_model(_reloaded, p, a), wm_recs)
+    ok &= _check("C2 persisted WM reloads + reproduces (cross-run reuse)",
+                 _reloaded is not None and _rep2["accuracy"] == 1.0 and _os2.path.isdir(_gd))
+    ok &= _check("C2 load_model returns None when a game has no saved model",
+                 WM.load_model(WM.wm_dir(_wmbase, "nope")) is None)
+
     # 10c) hypotheses: falsify drops mispredictors; discriminating action is the
     #      one whose predictions split the hypotheses the most.
     #   two hypotheses, only H_b predicts "X" for action 1 -> observing "X"
