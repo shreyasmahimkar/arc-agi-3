@@ -56,6 +56,22 @@ def main():
     bad, err = rc._exec_world_model("import os\nclass WorldModel:\n def __init__(s,o):pass", {})
     ok &= _check("sandbox blocks `import os`", bad is None)
 
+    # 5a) numpy-style frame indexing must NOT crash candidate_plans. An LLM often
+    #     writes `frame[y, x]`; on a Python-list frame that raises 'list indices
+    #     must be integers or slices, not tuple' (ft09 L2 wall crash, cron line 34).
+    #     _coerce_obs now hands the model a numpy frame so both index styles work.
+    _np_code = ("class WorldModel:\n"
+                " def __init__(self, o):\n"
+                "  self.f = o.get('frame'); self.a = o.get('available_actions', [1])\n"
+                " def candidate_plans(self, max_len):\n"
+                "  _ = int(self.f[0, 0])  # numpy tuple-index; crashes on a list frame\n"
+                "  return [[(a, None)] for a in self.a]\n")
+    _wm, _e = rc._exec_world_model(_np_code, {"frame": [[1, 2], [3, 4]],
+                                              "available_actions": [1, 2]})
+    _plans = _wm.candidate_plans(10) if _wm is not None else None
+    ok &= _check("runtime_coder: numpy frame[y,x] indexing does not crash",
+                 _wm is not None and _plans == [[(1, None)], [(2, None)]])
+
     # 5b) Stage-3.5 replay_wins (BACKLOG #3): pure fork-replay over injected
     #     clone/play closures — the try_plan_fn contract cadence_runner wires in.
     def _clone(s):

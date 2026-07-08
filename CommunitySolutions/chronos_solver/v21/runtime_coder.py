@@ -48,7 +48,8 @@ WM_PROMPT = textwrap.dedent("""
     You receive `observations`, a dict with EXACTLY these keys:
       observations['level']             -> int, the level index
       observations['available_actions'] -> list[int], the action ids that are legal
-      observations['frame']             -> 2D list[list[int]] of color ids (rows x cols)
+      observations['frame']             -> numpy 2D int array of color ids (rows x cols);
+                                           index it as frame[y, x] (row y, col x) OR frame[y][x]
       observations['transitions']       -> list of {{'action':int,'levels_completed':int,'changed':bool}}
                                            (each = the effect of pressing that action once from start)
     Use ONLY these keys (via .get). `data` is None for actions 1-5 and 7, and
@@ -74,6 +75,30 @@ class _Timeout(Exception):
     pass
 
 
+def _coerce_obs(observations):
+    """Hand the world model a numpy `frame` so the natural `frame[y, x]` idiom
+    works. Indexing a Python list with a tuple raises 'list indices must be
+    integers or slices, not tuple' — the #1 LLM candidate_plans crash (seen on
+    ft09 L2). numpy arrays also support `frame[y][x]`, so list-style code that
+    already worked keeps working; this is strictly additive. Non-dict / missing /
+    non-2D frames pass through unchanged."""
+    if not isinstance(observations, dict):
+        return observations
+    frame = observations.get("frame")
+    if frame is None:
+        return observations
+    try:
+        import numpy as np
+        arr = np.asarray(frame)
+        if arr.ndim == 2:
+            o = dict(observations)
+            o["frame"] = arr
+            return o
+    except Exception:
+        pass
+    return observations
+
+
 def _exec_world_model(code, observations, exec_timeout=5):
     """Exec LLM code in a restricted namespace; return a WorldModel instance."""
     code = code.strip()
@@ -95,7 +120,7 @@ def _exec_world_model(code, observations, exec_timeout=5):
         WM = ns.get("WorldModel")
         if WM is None:
             return None, "no WorldModel class"
-        return WM(observations), None
+        return WM(_coerce_obs(observations)), None
     except _Timeout:
         return None, "exec timeout"
     except Exception as e:
