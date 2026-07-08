@@ -10,7 +10,7 @@ PY="${PY:-$HERE/../../../.venv312/bin/python}"
 export V21_LLM_BACKEND="${V21_LLM_BACKEND:-ollama}"
 export V21_OLLAMA_MODEL="${V21_OLLAMA_MODEL:-qwen2.5-coder:7b-instruct-q4_K_M}"  # q4 7b (~4.7GB) fits M1 alongside BFS; deadline watchdog guards any swap/hang. Fallback to 3b below if absent.
 V21_OLLAMA_FALLBACK="${V21_OLLAMA_FALLBACK:-qwen2.5-coder:3b}"  # used if the primary model isn't pulled
-BUDGET="${BUDGET:-1200}"                      # seconds/level; raised 600->1200 for deeper walls (ls20 L4 timed out at 600; L5-L6/ft09 L2-L5 need more BFS depth)
+BUDGET="${BUDGET:-600}"                       # seconds/level. Lowered 1200->600: BFS provably won't crack ls20 L5/L6 (117k states explored, 30k unique, still timed out at 1200s) — deeper BFS is wasted compute. Faster passes = more frequent CODE-branch signal for the coder; the walls now need learned/world-model methods (see BACKLOG R7 TRM), not raw search depth.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"   # so `ollama` is found under launchd
 
 # --- wall-cracking features (defaults ON; override in the environment) ---------

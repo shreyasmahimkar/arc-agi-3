@@ -54,6 +54,8 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    [DONE] Corpus `solutions/ls20.json` L1 is 41 actions → RHAE(L1)=1.0 as of Mac run 20260706T194329Z.
 8. **Trained intuition prior.** Replace corpus-frequency prior with a small policy net over
    frame features; keep the `order_actions` interface. *Done when:* held-out solve-rate improves.
+   [ELEVATED by user steer 2026-07-08 → see R9 (TRM/HRM tiny recursive scorer) and R11 (Tufa
+   StochasticGoose CNN frame-change head) for the concrete open-model implementations.]
 9. **Cross-game macro retrieval (Stage 1b).** Use `intuition`/macro bank to seed BFS on a
    *similar* held-out game. *Done when:* a macro from one game solves a level of another.
    [PARTIAL — within-game macro replay CODED] `blitz.blitz_macros` replays a solved level's plan
@@ -223,6 +225,84 @@ R8. **Perception is the real bottleneck — feed the coder a symbolic scene desc
     the digest names each component and its post-action delta over a mock transition log). *Done when:*
     on a wall, the perception-object digest lets the coder reference objects by identity and the
     coder step yields a valid plan where the raw-grid digest did not.
+
+# ---------------------------------------------------------------------
+# STRATEGIC STEER (2026-07-08, user): raw BFS provably cannot crack ls20 L5/L6
+# (117k states, 30k unique, still timed out at 1200s) — budget lowered 1200->600
+# so passes turn over faster. MAIN FOCUS moves OFF search depth and ONTO: latest
+# world-model research, small/intuitive OPEN models (TRM-style), Tufa Labs'
+# interactive-v3 work, Opus-4.8 as a teacher on the network-enabled cadence box,
+# and (long-horizon) an ensemble that combines them. Items R9–R14. All additive +
+# env-gated; the offline submission corpus is never risked.
+# ---------------------------------------------------------------------
+R9. **Tiny Recursive Models (TRM) / HRM as the learned intuition prior** (elevates item #8; the
+    user's "small intuitive open models" steer). TRM = 7M-param single tiny net that recurses on a
+    latent "scratchpad" and backprops through ALL recursive steps; 45% ARC-AGI-1 / 8% ARC-AGI-2,
+    beating DeepSeek-R1/o3-mini/Gemini-2.5-Pro at <0.01% of their params (Jolicoeur-Martineau,
+    "Less is More", arXiv:2510.04871). Predecessor HRM (27M, 40.3% ARC-AGI-1). OPEN WEIGHTS on HF:
+    `wtfmahe/Samsung-TRM`, `SamsungSAILMontreal/TinyRecursiveModels`, `domus-magna/trm-repro`.
+    Refinements: TTT-of-TRM (arXiv:2511.02886), Mamba-2 hybrid (arXiv:2602.12078), identity-cond +
+    test-time compute (arXiv:2512.11847). *Action:* replace the corpus-frequency `intuition_prior`
+    with a TRM-style tiny recursive scorer behind the existing `order_actions` interface, env
+    `V21_TRM_PRIOR` (OFF). CAVEAT: TRM is a STATIC-grid solver — for interactive v3 reframe it as a
+    per-frame "rank next action / predict frame-delta" scorer, not a puzzle solver. *Done when:* the
+    TRM prior beats the frequency prior on held-out action ordering offline. **BLOCKER: GPU
+    training/TTT route** (not offline-verifiable in a 4h sandbox); bundle a quantized checkpoint for
+    offline inference once trained.
+R10. **Mine the now-PUBLIC ARC-AGI-3 reference code** (validates R2/R3/B2, gives real impls to port).
+    (a) Executable World Models baseline `github.com/astroseger/arc-3-agents-baseline1` (Rodionov
+    2605.05138: coder builds+verifies+MDL-refactors a Python WM, plans through it; 15/25 games, RHAE
+    58%) → seeds B2/B3 authoring loop. (b) Graph explorer `github.com/dolphin-in-a-coma/arc-agi-3-just-explore`
+    (frame processor + state hashing + frontier mgmt) → seeds R3/#6. (c) Interactive agent
+    `github.com/ssppsy/arc-agi-3`. (d) Official API/toolkit `github.com/arcprize/arc-agi`. *Action:*
+    port the WM-authoring loop (a) and frontier-managed state-graph (b) into `brain/world_model.py`/
+    planner + BFS, pure/offline + env-gated; do NOT vendor network/agent-SDK deps. *Done when:* a
+    ported WM-authoring or frontier-dedup step reproduces a solved level offline.
+R11. **Tufa Labs "StochasticGoose" — CNN+RL frame-change predictor** (won the ARC-AGI-3 Agent
+    Preview at 12.58%, 18 levels: a 4-layer conv over 64×64 frames predicting which actions cause a
+    frame change; ARC Prize 2025 report arXiv:2601.10904 + Tufa preview writeup). INTERACTIVE-v3-
+    NATIVE and the cleanest attack on **ft09** (blind-ACTION6 reflex): a small conv "will this action
+    change the frame?" head is exactly ft09's missing intuition. Ties to R9 (both are the learned
+    prior). *Action:* prototype a tiny frame-change-predictor head (numpy inference, bundled weights)
+    that reorders/gates ACTION6 candidates, env `V21_FRAMECHANGE_PRIOR` (OFF). *Done when:* it cuts
+    scored actions on ft09 vs the blind scan offline. **BLOCKER: GPU training route** (as R9).
+R12. **Tufa Labs LADDER + TTRL — recursive variant self-improvement** (arXiv:2503.00735). Generate
+    progressively SIMPLER variants of a hard level, solve those first, RL up to the hard one on a
+    verifiable reward; TTRL adds test-time RL. This is the named/cited method behind item #4's ls20
+    "variant re-root / Go-Explore", and it strengthens `evolve`/consolidation (B7). *Action:* fold a
+    LADDER-style variant-decomposition seed into `blitz.blitz_macros` / the evolve loop for ls20
+    L5–L6 — solve a shortened/rooted sub-problem, replay its winning prefix as a Go-Explore seed.
+    Pure/offline-testable on a mock variant ladder. *Done when:* a variant-seed prefix registers
+    progress on ls20 L5 that cold BFS does not.
+R13. **Opus-4.8 as a TEACHER/coder on the network-enabled cadence box** (user obs: Opus-4.8 solves
+    ls20 levels as-is). The Mac cadence already runs `--allow-network`; add an env-gated
+    `V21_LLM_BACKEND=claude` coder behind the existing `llm_backend` interface (external network +
+    key ONLY on the Mac) so `runtime_coder`/`evolve` can use a frontier model to actually crack a
+    wall, then DISTILL the `verify_solution`-passed plan into the offline corpus. INVARIANT: the
+    teacher runs only during Mac *solving*; the committed corpus is a model-free verified action list,
+    so the OFFLINE Kaggle guard is untouched (Kaggle never calls the teacher). Also capture Opus's
+    ls20 reasoning traces as macros / to distil the intuition prior (feeds R9). *Done when:* an
+    Opus-authored verified plan solves ls20 L5 or L6 and lands shortest-gated in the corpus.
+    **BLOCKER: Claude/Opus API key + external network on the Mac** (localhost-only today) — user action.
+R14. **(Long-horizon integration target) The ensemble the user is imagining: open world model +
+    massively-parallel multi-agent + VLM + neuro-symbolic brain-mimicking nets, combined to crack
+    ls20 L5/L6.** This is the north star, and much of it already has homes — don't build it as one
+    monolith; assemble it from the env-gated pieces: (i) **open world model** = R2/R10/B2 executable
+    WM; (ii) **"100 agents thinking in parallel"** = best-of-N / competing-hypothesis WM synthesis
+    (R1 belief-entropy gate + R2 best-of-N + B4 hypotheses) — on the Mac this is sequential-batched
+    N, not literally 100 processes (memory-bound alongside BFS), but the DISCRIMINATION logic is the
+    same: spawn N candidate models, spend scored actions on the most-discriminating move, keep the
+    survivor; (iii) **VLM perception** — we deliberately use exact connected-component perception (B1)
+    INSTEAD of a VLM because R8 shows ~80% of VLM ARC failures are perception errors; keep symbolic
+    perception as the front-end and reserve a VLM only for a fallback describe-the-scene path; (iv)
+    **neuro-symbolic / brain-mimicking nets** = the TRM/HRM/StochasticGoose learned priors (R9/R11)
+    feeding the symbolic BFS/WM cascade — that IS the neuro-symbolic combo (tiny net for intuition,
+    program-synthesis WM for verified planning). *Action:* treat R14 as the assembly spec, not a
+    ticket — each cycle ship ONE of R9–R13 env-gated, and the "ensemble" emerges as the cascade
+    `blitz → BFS → [TRM/framechange prior orders actions] → best-of-N executable WM (R1 gate) →
+    Opus-teacher fallback`. *Done when:* the combined env-gated stack solves ls20 L5 or L6 end-to-end.
+    **BLOCKER: aggregate — GPU training route (R9/R11) + Mac API access (R13) + more RAM for real
+    best-of-N.** Sequenced behind R9–R13; do not attempt as a single big-bang change.
 
 ## Stop condition
 All 20 levels across the 3 games solved + verified at RHAE 1.0 (or the highest reachable),

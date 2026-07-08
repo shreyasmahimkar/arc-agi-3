@@ -242,3 +242,26 @@ A third RESEARCH-branch scan (2026-07-07, RESEARCH-3) added two mechanisms
   Open-source `symbolica-ai/arcgentica` + `symbolica-ai/ARC-AGI-3-Agents`; blog
   https://www.symbolica.ai/blog/arc-agi-3 . (Orchestrator + compressed-summary
   subagents for bounded context; 36.08% on the 25-game public set — R6.)
+
+### Learned-prior / small-open-model direction (user steer 2026-07-08 — R9–R14)
+- Jolicoeur-Martineau, A. (2025). *Less is More: Recursive Reasoning with Tiny
+  Networks (TRM).* arXiv:2510.04871. 7M params, 45% ARC-AGI-1 / 8% ARC-AGI-2.
+  Open weights: HF `wtfmahe/Samsung-TRM`, `SamsungSAILMontreal/TinyRecursiveModels`,
+  `domus-magna/trm-repro`. Predecessor HRM (Wang et al. 2025, 27M, 40.3% ARC-AGI-1).
+  Refinements: TTT-of-TRM (arXiv:2511.02886), Mamba-2 hybrid (arXiv:2602.12078),
+  identity-conditioning + test-time compute (arXiv:2512.11847) — R9. Reframed for
+  interactive v3 as a per-frame action-ranking / frame-delta scorer, not a puzzle solver.
+- Tufa Labs. *StochasticGoose* — CNN+RL frame-change predictor; won the ARC-AGI-3
+  Agent Preview at 12.58% (18 levels; 4-layer conv over 64×64 frames). Interactive-
+  v3-native intuition prior; cleanest attack on ft09's blind ACTION6 reflex — R11.
+- Tufa Labs. *LADDER: Self-Improving LLMs Through Recursive Problem Decomposition.*
+  arXiv:2503.00735 (+ TTRL). Named method behind ls20 variant re-root / Go-Explore
+  and the consolidation flywheel — R12.
+- Public ARC-AGI-3 reference code to port (R10): executable-WM baseline
+  `github.com/astroseger/arc-3-agents-baseline1`; graph explorer
+  `github.com/dolphin-in-a-coma/arc-agi-3-just-explore`; interactive agent
+  `github.com/ssppsy/arc-agi-3`; official toolkit `github.com/arcprize/arc-agi`.
+- Opus-4.8-as-teacher on the network-enabled cadence box, distilling verified plans
+  into the model-free offline corpus (R13); ensemble assembly spec (open WM +
+  best-of-N parallel hypotheses + symbolic perception + tiny neuro-symbolic priors)
+  is the long-horizon integration target (R14), sequenced behind R9–R13.
