@@ -371,9 +371,17 @@ C2 (=T2, subsumes B2). **Persistent executable world model** — `brain/wm/<gid>
     to the SHORTEST equivalent rule: identity/constant, Rodionov 2026), pure `predict_from_model`, and
     on-disk `wm_dir`/`save_model`/`load_model` at `brain/wm/<game>/model.json` (atomic, canonical JSON).
     Pure/dependency-free; +5 offline checks (reproduce/None-unseen/MDL-identity/persist-reload-reuse/absent).
-    *Remaining:* WIRE into `cadence_runner.solve_game` behind env `V21_WORLD_MODEL` (default OFF) — record
-    live transitions on a solved wall -> build+mdl_refactor+save -> on the NEXT run load + verify_model
-    against fresh transitions and seed the planner from the trusted model; Mac cadence to confirm reuse.
+    [WIRED 2026-07-08] `cadence_runner.solve_game` now CAPTUREs live one-step transitions on still-UNSOLVED
+    walls (`_wm_step_records`: status-bar-masked frames as state), PERSISTs a per-game model at game-end
+    (`_wm_persist`: build_tabular_model->mdl_refactor->save_model->`brain/wm/<gid>/model.json`), and each
+    pass READs the prior-run model via `_wm_reuse`->`verify_model`, logging the cross-run `is_trusted` REUSE
+    signal. Env `V21_WORLD_MODEL` (default OFF; exported =1 in run_cadence.sh per the R13 coded-but-never-
+    exported lesson). New `v21/.gitignore` keeps `brain/wm/`+`brain/blackboard/` runtime state out of the
+    `git add -A v21/` sweep. +7 offline wiring checks; corpus + offline guard untouched. *Remaining:* a Mac
+    cadence to confirm the `WORLD_MODEL saved`/`WORLD_MODEL reuse: trusted=True` lines, then upgrade the
+    tabular model to SEED the Go-Explore planner (predict-through-model rollout) so a persisted model
+    actively cracks a wall — the tabular substrate only reproduces SEEN states, so the seed step needs the
+    MDL/coder RULE-model, not just the table.
 C3 (=T3, subsumes B8/R9/R11). **Intuitive brain / toddler** — frame-change/action scorer
     (self-supervised online from action_effects first; StochasticGoose-lite CNN / TRM later) behind
     the fixed `IntuitionPrior.order_actions` interface; guides C1. Env `V21_TODDLER`.

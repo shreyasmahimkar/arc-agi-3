@@ -179,6 +179,12 @@ def solve_game(gid, bfs_timeout, BFSSolver):
     # Epic C0: shared scratchpad for this game (None unless V21_BLACKBOARD=1).
     bb = _bb_open(gid)
 
+    # Epic C2: persistent executable world model (brain/wm/<gid>/). None unless
+    # V21_WORLD_MODEL=1. wm_records accumulates this run's captured transitions;
+    # a model persisted on a PRIOR run is verified against them for the reuse signal.
+    wm_gd = _wm_game_dir(gid) if _wm_enabled() else None
+    wm_records = []
+
     for lvl in range(n_levels):
         prev = corpus.get(lvl)
         prev_len = len(prev) if prev else None
@@ -189,6 +195,24 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         else:
             best, best_len = None, None
             already_solved = False
+        # Epic C2 CAPTURE+REUSE: on still-UNSOLVED walls, record live one-step
+        # transitions and (if a model was persisted on a prior run) verify it still
+        # reproduces them — the cross-run reuse signal. Only for walls so solved
+        # corpus levels add ZERO cost; fully guarded; env V21_WORLD_MODEL (OFF).
+        if wm_gd is not None and not already_solved:
+            try:
+                recs = _wm_step_records(solver, lvl)
+            except Exception as e:
+                recs = []
+                logger.debug("[%s L%d] world_model capture error: %s", gid, lvl, e)
+            if recs:
+                wm_records.extend(recs)
+                rep = _wm_reuse(wm_gd, recs)
+                if rep is not None:
+                    from brain.world_model import is_trusted
+                    logger.info("[%s L%d] WORLD_MODEL reuse: trusted=%s acc=%.2f (n=%d)",
+                                gid, lvl, is_trusted(rep),
+                                rep.get("accuracy", 0.0), rep.get("n_total", 0))
         # Stage-0 blitz pre-pass (BACKLOG #2): only for UNSOLVED (wall) levels —
         # solved levels already have a verified corpus plan, so this adds ZERO
         # cost there. Cheap depth-1 / repeat-K wins crack reflex/orchestration
@@ -318,6 +342,15 @@ def solve_game(gid, bfs_timeout, BFSSolver):
             bb.consolidate().save()
         except Exception as e:
             logger.debug("[%s] blackboard save failed: %s", gid, e)
+    # Epic C2: persist this run's captured transitions as a per-game executable
+    # world model (build -> MDL-refactor -> save) so the NEXT run can load+verify
+    # (reuse) it. Guarded; only writes brain/wm/<gid>/ runtime state.
+    if wm_gd is not None and wm_records:
+        model = _wm_persist(wm_gd, wm_records)
+        if model is not None:
+            logger.info("[%s] WORLD_MODEL saved kind=%s n=%s -> %s",
+                        gid, model.get("kind"), model.get("n"),
+                        os.path.relpath(wm_gd, HERE))
     return rows, corpus, improved
 
 
@@ -413,6 +446,105 @@ def _toddler_order(bb, gid, level, avail, frame=None, env=None):
     except Exception as e:
         logger.debug("[%s] toddler order failed: %s", gid, e)
         return None
+
+
+# ---- Epic C2 (=T2): persistent executable world model wiring -----------------
+# The `brain/world_model.py` substrate (build_tabular_model -> mdl_refactor ->
+# save/load, verify_model/is_trusted) is proven offline; this wires it live.
+# WRITE: on still-UNSOLVED walls, capture live one-step transitions and persist a
+# per-game executable world model at brain/wm/<gid>/model.json. READ (next run):
+# load that model and verify it still reproduces freshly-captured transitions —
+# is_trusted(report) is the C2 cross-run REUSE signal ("the model transferred").
+# All env-gated V21_WORLD_MODEL (default OFF); the verified corpus and offline
+# guard are untouched — this only reads/writes brain/wm state no committed
+# solution depends on. The pure helpers are engine-free (test_offline exercises
+# them); only _wm_step_records touches the engine and is fully guarded.
+def _wm_enabled(env=None):
+    env = os.environ if env is None else env
+    return env.get("V21_WORLD_MODEL", "0") in ("1", "true", "True")
+
+
+def _wm_game_dir(gid):
+    """On-disk dir for this game's persisted world model: brain/wm/<gid>/."""
+    from brain.world_model import wm_dir
+    return wm_dir(HERE, gid)
+
+
+def _wm_persist(game_dir, records):
+    """PURE: build a trusted-by-construction tabular model from recorded
+    (prev, action, next) transitions, MDL-refactor it toward a shorter equivalent
+    rule, and save it to <game_dir>/model.json. Returns the saved model dict, or
+    None on empty records / failure. Engine-free (json/os only)."""
+    if not records:
+        return None
+    try:
+        from brain.world_model import build_tabular_model, mdl_refactor, save_model
+        model = mdl_refactor(build_tabular_model(records))
+        save_model(game_dir, model)
+        return model
+    except Exception as e:
+        logger.debug("world_model persist failed: %s", e)
+        return None
+
+
+def _wm_reuse(game_dir, records):
+    """PURE: load a previously-persisted model and verify it still reproduces the
+    freshly-captured `records` (the cross-run reuse check). Returns a verify report
+    dict, or None if no model is saved yet / on failure. is_trusted(report) is the
+    'model transferred across runs' signal the loop logs. Engine-free."""
+    if not records:
+        return None
+    try:
+        from brain.world_model import load_model, verify_model, predict_from_model
+        model = load_model(game_dir)
+        if model is None:
+            return None
+        return verify_model(lambda p, a: predict_from_model(model, p, a), records)
+    except Exception as e:
+        logger.debug("world_model reuse failed: %s", e)
+        return None
+
+
+def _wm_step_records(solver, level_idx):
+    """Capture LIVE one-step transitions from this level's TRUE start: replay each
+    simple action once on a fresh fork and record (masked-frame, action_id,
+    masked-next-frame). The status-bar-masked frame (top/bottom 2 rows zeroed,
+    canonical nested lists) is the model's state, so records are deterministic
+    across runs (same engine + same start) — build+save this run, load+verify next
+    run. Cheap (<=5 forked actions). Engine imports are lazy (Mac-only). Returns a
+    list of (prev, action, next) triples, or [] on any failure."""
+    import numpy as np
+    from combined_agent import ActionInput, GameAction
+
+    res = None
+    try:
+        res = solver._make_start_state(level_idx)
+    except Exception:
+        res = None
+    if res is None:
+        return []
+    game, f0 = res
+
+    def _mask(f):
+        fm = np.asarray(f).copy()
+        if fm.ndim == 2 and fm.shape[0] > 4:            # mask status bars (top/bottom 2 rows)
+            fm[:2] = 0; fm[-2:] = 0
+        return fm.tolist()
+
+    prev = _mask(f0)
+    avail = [a for a in (getattr(game, "_available_actions", []) or []) if a <= 5] \
+        or [1, 2, 3, 4, 5]
+    recs = []
+    for aid in avail:
+        try:
+            g = solver._restore(solver._snap(game))
+            r = g.perform_action(ActionInput(id=GameAction.from_id(aid)), raw=True)
+            nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+            if nf is not None:
+                recs.append((prev, aid, _mask(nf)))
+        except Exception:
+            continue
+    return recs
 
 
 # ---- Stage-3.5 runtime code-writer (BACKLOG #3) -------------------------------

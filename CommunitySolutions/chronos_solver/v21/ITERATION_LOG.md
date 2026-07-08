@@ -6,6 +6,24 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08 18:02Z] **item C2 — WIRE persistent world model into cadence_runner (V21_WORLD_MODEL)** —
+  HEALTH: runner HEALTHY/RUNNING — prior run 120617Z finished `cadence exit=0` @17:53Z; newest cron
+  175324Z started 17:53Z, actively in ls20 L5 BFS (silent ~9m, within the 600s budget). `.cadence.lock`
+  (17:53Z) = the live run holding it, NOT stale. Last COMPLETE run 120621Z flat (ls20/ft09/vc33 all
+  RHAE 1.000, walls uncracked). WHAT: wired the C2 substrate live — `cadence_runner._wm_step_records`
+  captures live one-step transitions (status-bar-masked frames as state) on still-UNSOLVED walls;
+  pure `_wm_persist` (build_tabular_model→mdl_refactor→save_model→brain/wm/<gid>/model.json) at
+  game-end; pure `_wm_reuse` (load+verify_model against fresh records) each pass logs the cross-run
+  is_trusted REUSE signal. Env-gated `V21_WORLD_MODEL` (default OFF; exported =1 in run_cadence.sh per
+  the R13 coded-but-never-exported lesson). Added `v21/.gitignore` (brain/wm/, brain/blackboard/,
+  __pycache__) so Mac runtime state can't land in the `git add -A v21/` sweep. Corpus + offline guard
+  untouched. VERIFIED: `py_compile` green; `test_offline.py` green with +7 C2-wiring checks (gate on/off,
+  reuse-None-before-save, persist-saves, reuse-trusts-reloaded, reuse-flags-unseen, empty-safe);
+  `test_blackboard.py` green. EXPECTED next Mac run: `[<game> L<wall>] WORLD_MODEL reuse: trusted=...`
+  lines + a `WORLD_MODEL saved kind=tabular n=...` line per game; the run AFTER should show trusted=True
+  reuse on stable walls (model transferred). Walls still need C1/coder to actually SOLVE; C2 is the
+  reuse substrate.
+
 - [2026-07-08 16:02Z] **item C2 — PERSISTENT executable world model substrate (brain/world_model.py, V21_WORLD_MODEL)** —
   HEALTH: runner HEALTHY/RUNNING — newest cron 120617Z (started 12:06Z) was writing at 16:02Z (this
   check), no `cadence exit=` line, actively in vc33 BFS L5 (16604 explored, 4435 unique @600s).

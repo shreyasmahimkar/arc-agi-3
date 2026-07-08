@@ -374,6 +374,38 @@ def main():
     ok &= _check("C2 load_model returns None when a game has no saved model",
                  WM.load_model(WM.wm_dir(_wmbase, "nope")) is None)
 
+    # 10b-3) C2 cadence_runner WIRING (pure helpers, engine-free): _wm_persist
+    #        builds+refactors+saves a per-game model; _wm_reuse loads it next run
+    #        and verifies it still reproduces freshly-captured records (the cross-
+    #        run reuse signal); the gate + empty/absent paths degrade safely.
+    import cadence_runner as CR
+    _wmbase2 = _tf.mkdtemp()
+    _gd2 = WM.wm_dir(_wmbase2, "ls20")          # same layout _wm_game_dir produces
+    #   env gate: OFF by default, ON when the flag is set
+    ok &= _check("C2 wiring: _wm_enabled OFF by default",
+                 not CR._wm_enabled({}))
+    ok &= _check("C2 wiring: _wm_enabled ON with V21_WORLD_MODEL=1",
+                 CR._wm_enabled({"V21_WORLD_MODEL": "1"}))
+    #   no model persisted yet -> reuse returns None (nothing to verify)
+    ok &= _check("C2 wiring: _wm_reuse None before any model saved",
+                 CR._wm_reuse(_gd2, wm_recs) is None)
+    #   persist this 'run' -> model saved on disk
+    _saved = CR._wm_persist(_gd2, wm_recs)
+    ok &= _check("C2 wiring: _wm_persist saves a model to disk",
+                 _saved is not None and _os2.path.isfile(_os2.path.join(_gd2, WM.MODEL_FILENAME)))
+    #   next 'run' -> _wm_reuse loads it and it still reproduces the same records
+    _rerep = CR._wm_reuse(_gd2, wm_recs)
+    ok &= _check("C2 wiring: _wm_reuse trusts the reloaded model next run",
+                 _rerep is not None and WM.is_trusted(_rerep) and _rerep["accuracy"] == 1.0)
+    #   a DIFFERENT (unseen) record set is not reproduced by the tabular model
+    _other = [([[7, 7]], (2, None), [[7, 8]])]
+    _rep_other = CR._wm_reuse(_gd2, _other)
+    ok &= _check("C2 wiring: _wm_reuse flags an unseen transition (not trusted)",
+                 _rep_other is not None and not WM.is_trusted(_rep_other))
+    #   empty records degrade safely (no crash, no bogus model)
+    ok &= _check("C2 wiring: _wm_persist/_wm_reuse safe on empty records",
+                 CR._wm_persist(_gd2, []) is None and CR._wm_reuse(_gd2, []) is None)
+
     # 10c) hypotheses: falsify drops mispredictors; discriminating action is the
     #      one whose predictions split the hypotheses the most.
     #   two hypotheses, only H_b predicts "X" for action 1 -> observing "X"

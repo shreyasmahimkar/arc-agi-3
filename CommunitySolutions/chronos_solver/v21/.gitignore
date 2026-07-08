@@ -1,0 +1,6 @@
+# Runtime brain state written by live Mac cadences — NOT source, never commit.
+# (The autonomous coder runs `git add -A v21/`; keep these out of that sweep so a
+# Mac run's per-game model/blackboard JSON can't land in a code commit.)
+brain/wm/
+brain/blackboard/
+__pycache__/
