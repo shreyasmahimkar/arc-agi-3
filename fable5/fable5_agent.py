@@ -161,7 +161,8 @@ Strategy:
 3. The game has multiple levels; completing a level increases your score.
 4. If "NO CHANGE" repeats, that action is blocked there - try something else.
 5. Build and refine a hypothesis of the rules. Exploit it to finish levels fast.
-6. Keep your memory concise and factual: controls learned, map layout, goal, plan.
+6. Keep your memory concise and factual (under 120 words): controls learned, \
+map layout, goal, current plan. Never let it grow unbounded.
 
 Respond ONLY with a JSON object:
 {"observation": "<what changed and what it implies, 1-2 sentences>",
@@ -207,7 +208,7 @@ class Fable5Agent:
         msgs = self.history[-(self.history_turns * 2):] + [user_msg]
         resp = self.client.messages.create(
             model=self.model,
-            max_tokens=1500,
+            max_tokens=3000,
             system=SYSTEM_PROMPT,
             messages=msgs,
         )
@@ -237,7 +238,9 @@ class Fable5Agent:
             except json.JSONDecodeError:
                 pass
         m = re.search(r"(RESET|ACTION[1-7])", text.upper())
-        return {"action": m.group(1) if m else "ACTION5"}
+        if m:
+            return {"action": m.group(1), "_fallback": True}
+        return {"action": "ACTION5", "_fallback": True}
 
 
 # ------------------------------------------------------------------ main ----
@@ -292,6 +295,15 @@ def main() -> None:
                 continue
 
             d = agent.choose(frame, prev_frame, last_action, n, args.max_actions)
+            if d.get("_fallback"):
+                # model reply didn't parse as JSON - explore instead of looping
+                import random
+                avail = [a for a in (frame.get("available_actions") or [1, 2, 3, 4, 5])
+                         if a != 0]
+                d["action"] = f"ACTION{random.choice(avail)}" \
+                    if isinstance(avail[0], int) else str(random.choice(avail))
+                d["x"], d["y"] = random.randint(0, 63), random.randint(0, 63)
+                print(f"      (warn: unparseable model reply, exploring with {d['action']})")
             action = d["action"]
             reasoning = {"observation": d.get("observation", ""),
                          "model": args.model}
@@ -320,6 +332,8 @@ def main() -> None:
                                  "observation": d.get("observation")})
     except KeyboardInterrupt:
         print("\nInterrupted - closing scorecard...")
+    except Exception as e:
+        print(f"\nRun aborted by error: {e}\nClosing scorecard and saving log...")
 
     final = arc.close_scorecard(card_id)
     detail = arc.get_scorecard(card_id)
