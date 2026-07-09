@@ -22,7 +22,16 @@ _SAFE_BUILTINS = {k: getattr(_bi, k) for k in
      "dict", "set", "tuple", "int", "float", "bool", "sorted", "map", "filter",
      "any", "all", "print", "isinstance", "getattr", "hasattr",
      "__build_class__", "property", "staticmethod", "classmethod",
-     "object", "super", "Exception", "ValueError", "reversed", "round")}
+     "object", "super", "Exception", "ValueError", "reversed", "round",
+     # pure value/type builtins LLM-authored candidate_plans routinely calls
+     # (e.g. str(game_id) keys) — omitting these crashed OPUS_WM on ls20 L5
+     # with "name 'str' is not defined". None are I/O or code-eval; safe.
+     "str", "bytes", "frozenset", "type", "repr", "format", "ord", "chr",
+     "divmod", "pow", "hash", "slice", "iter", "next", "callable",
+     "TypeError", "KeyError", "IndexError", "AttributeError", "RuntimeError",
+     "StopIteration", "ZeroDivisionError", "ArithmeticError", "OverflowError",
+     "NotImplementedError")
+     if hasattr(_bi, k)}
 
 _ALLOWED_IMPORTS = {"numpy", "math", "itertools", "collections"}
 
@@ -99,11 +108,27 @@ def _coerce_obs(observations):
     return observations
 
 
+_UNI = {"—": "-", "–": "-", "−": "-",       # em/en/minus dashes -> -
+        "“": '"', "”": '"', "„": '"',       # smart double quotes -> "
+        "‘": "'", "’": "'", "‚": "'",       # smart single quotes -> '
+        "…": "...", " ": " ", "​": ""}       # ellipsis, nbsp, zero-width
+
+
+def _sanitize_unicode(code):
+    """Replace the non-ASCII punctuation LLMs love (em-dash U+2014, smart quotes,
+    ellipsis, nbsp) with ASCII so `compile()` doesn't choke — the #1 cause of
+    'invalid character' / 'unterminated string literal' on Opus/Qwen world models."""
+    for k, v in _UNI.items():
+        code = code.replace(k, v)
+    return code
+
+
 def _exec_world_model(code, observations, exec_timeout=5):
     """Exec LLM code in a restricted namespace; return a WorldModel instance."""
     code = code.strip()
     if code.startswith("```"):
         code = code.split("```", 2)[1].lstrip("python").strip() if "```" in code[3:] else code.strip("`")
+    code = _sanitize_unicode(code)   # LLMs emit em-dashes/smart-quotes that break compile()
     ns = {"__builtins__": _SAFE_BUILTINS, "__name__": "world_model"}
     try:
         import numpy as np

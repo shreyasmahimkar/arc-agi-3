@@ -6,6 +6,21 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-09 16:0xZ] **R13/OPUS_WM sandbox-builtins fix** — `runtime_coder._SAFE_BUILTINS`
+  was missing common pure value/type builtins, so LLM-authored `candidate_plans` that call
+  `str(...)` crashed. Root-caused live in cron 152556Z: `[ls20 L5] opus WM candidate_plans
+  crashed: name 'str' is not defined` — the OPUS_WM lever was dying at exec-play time, wasting
+  the reserved ls20 L5 budget. Added `str, bytes, frozenset, type, repr, format, ord, chr,
+  divmod, pow, hash, slice, iter, next, callable` + the common exception types (TypeError,
+  KeyError, IndexError, AttributeError, RuntimeError, StopIteration, ZeroDivisionError,
+  ArithmeticError, OverflowError, NotImplementedError), all `hasattr`-guarded. NO I/O or
+  code-eval builtins added — `open/eval/exec/compile/__import__` stay out (safe `_safe_import`
+  unchanged). Verified: py_compile + test_offline (+2 checks: str/type/KeyError available AND
+  open() still blocked) + test_teacher/test_toddler/test_blackboard all green; corpus + offline
+  guard untouched; v21-only. Expected effect: next Mac cadence, OPUS_WM on ls20 L5 (and any
+  wall) executes its candidate_plans instead of crashing — the model-plan lever actually gets a
+  chance to win where it silently died this run.
+
 - [2026-07-09] **R13/frontier-gate cloud-budget concentration** — added pure predicate
   `cadence_runner._wall_reachable(level_idx, corpus, solutions)` (a wall is re-rootable iff
   every prior level has a verified plan) and gated the two PAID cloud stages — OPUS_TEACHER

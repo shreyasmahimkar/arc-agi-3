@@ -72,6 +72,29 @@ def main():
     ok &= _check("runtime_coder: numpy frame[y,x] indexing does not crash",
                  _wm is not None and _plans == [[(1, None)], [(2, None)]])
 
+    # 5a1) LLM-authored candidate_plans routinely calls str()/type()/exception
+    #      types; these were missing from _SAFE_BUILTINS, so OPUS_WM on ls20 L5
+    #      crashed "name 'str' is not defined" (cron 152556Z). The sandbox must
+    #      now expose common pure value/type builtins (still no open/eval/exec).
+    _str_code = ("class WorldModel:\n"
+                 " def __init__(self, o):\n"
+                 "  self.a = o.get('available_actions', [1])\n"
+                 " def candidate_plans(self, max_len):\n"
+                 "  key = str(self.a[0]) + ':' + repr(type(self.a).__name__)\n"
+                 "  try:\n"
+                 "   raise KeyError(key)\n"
+                 "  except KeyError:\n"
+                 "   return [[(a, None)] for a in self.a]\n")
+    _wms, _es = rc._exec_world_model(_str_code, {"available_actions": [6, 1]})
+    _ps = _wms.candidate_plans(10) if _wms is not None else None
+    ok &= _check("runtime_coder: str/type/KeyError available in WM sandbox",
+                 _wms is not None and _ps == [[(6, None)], [(1, None)]])
+    # and the sandbox must STILL block dangerous builtins
+    _open_code = ("class WorldModel:\n"
+                  " def __init__(self, o): open('/etc/hostname')\n")
+    _wo, _eo = rc._exec_world_model(_open_code, {})
+    ok &= _check("runtime_coder: open() still blocked in WM sandbox", _wo is None)
+
     # 5a2) Perception-first coder digest (BACKLOG R6+R8): brain.summarize.digest
     #      replaces the raw-grid `{obs}` block behind V21_CODER_DIGEST. Must name
     #      each component, losslessly recall the action->outcome table, stay
