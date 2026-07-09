@@ -6,6 +6,25 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-09 18:2xZ] **R8/B1 Opus-teacher click-target GROUNDING** — the Opus teacher
+  now receives the level-START frame's valid ACTION6 click targets (B1 perception
+  component centroids) in its FIRST-round prompt, so its clicks land on real objects
+  instead of dead coordinates. New pure helpers `_teacher_ground_enabled` /
+  `_teacher_click_note(frame)` in cadence_runner (imports only brain.perception,
+  bounded to 500 chars, degrades to "" on any failure); folded into
+  `_opus_teacher_for_solver`'s `notes` behind env `V21_TEACHER_GROUND` (default OFF,
+  exported =1 in run_cadence.sh). Motivation: cron 152556Z, vc33 L4 OPUS_TEACHER
+  rounds 1&2 both failed with "first no-op/failure at action index 0 … delta 0 cells
+  changed" — the teacher's very first click hit empty space because it had to guess
+  x,y from source with no perception of the start scene. This complements R6/R8's
+  failure-scene feedback (which only fires round 2+); grounding fixes round 1. Verified:
+  py_compile (cadence_runner, test_offline) + test_offline (+6 checks: names-targets /
+  real-centroids / bounded / empty-None-safe / gate-off / gate-on) + test_teacher +
+  test_blackboard ALL green; corpus + offline guard untouched; no v19/v20. Expected
+  effect: next Mac cadence, vc33 L4 (and ft09 L2) round-1 teacher plans open with real
+  object clicks — the failure report should show a non-zero delta / progress past
+  action index 0 instead of an immediate no-op.
+
 - [2026-07-09 16:0xZ] **R13/OPUS_WM sandbox-builtins fix** — `runtime_coder._SAFE_BUILTINS`
   was missing common pure value/type builtins, so LLM-authored `candidate_plans` that call
   `str(...)` crashed. Root-caused live in cron 152556Z: `[ls20 L5] opus WM candidate_plans

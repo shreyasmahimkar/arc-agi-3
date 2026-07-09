@@ -916,6 +916,36 @@ def _opus_world_model_for_solver(solver, level_idx, gid):
     return None
 
 
+def _teacher_ground_enabled(env=None):
+    env = os.environ if env is None else env
+    return env.get("V21_TEACHER_GROUND", "0") in ("1", "true", "True")
+
+
+def _teacher_click_note(frame, limit=24, max_chars=500):
+    """R8/B1 grounding: format the level-start frame's valid ACTION6 click targets
+    (B1 perception component centroids) as a bounded note so the Opus teacher clicks
+    REAL objects instead of dead coordinates (run 152556Z: vc33 L4 round 1 first
+    action was a no-op — clicked empty space). Pure — imports only brain.perception;
+    returns "" on any failure so the teacher path is never broken by grounding."""
+    try:
+        from brain.perception import to_grid, click_targets
+        grid = to_grid(frame)
+        if not grid or not grid[0]:
+            return ""
+        tgts = click_targets(grid, limit=limit)
+        if not tgts:
+            return ""
+        pairs = ", ".join("(%d,%d)" % (t["x"], t["y"]) for t in tgts)
+        note = ("Valid ACTION6 click targets (col,row) from perception of the "
+                "level-start frame — prefer clicking these object centroids over "
+                "guessed coordinates: [" + pairs + "].")
+        if len(note) > max_chars:
+            note = note[:max_chars - 2].rstrip().rstrip(",") + "]."
+        return note
+    except Exception:
+        return ""
+
+
 def _opus_teacher_for_solver(solver, level_idx, gid):
     """Stage-3.6: hand the WHITE-BOX game source + stuck level to cloud Opus and get
     a candidate plan. UNVERIFIED (caller verifies + shortest-gates). Refuses the
@@ -932,14 +962,29 @@ def _opus_teacher_for_solver(solver, level_idx, gid):
     except Exception:
         pass
     avail = [1, 2, 3, 4, 5]
+    _f0 = None
     try:
         res = solver._make_start_state(level_idx)
         if res is not None:
-            g, _ = res
+            g, _f0 = res
             avail = [a for a in (getattr(g, "_available_actions", []) or []) if 1 <= a <= 5] or avail
     except Exception:
         pass
     notes = f"local blitz/BFS/Go-Explore/Qwen all failed level {level_idx}."
+
+    # R8/B1 click-target GROUNDING: on ACTION6 games (vc33/ft09) the teacher must
+    # guess x,y from reading the source; run 152556Z showed vc33 L4 round 1 clicked
+    # empty space (first no-op at action index 0, delta 0 cells changed). Hand Opus
+    # the level-START frame's valid click targets (B1 perception component centroids)
+    # up front so its FIRST-round clicks land on real objects, not dead coordinates.
+    # This complements R6/R8's failure-scene feedback (which only fires round 2+).
+    # Env V21_TEACHER_GROUND (default OFF); pure + degrades to no-op; the plan is
+    # still verify + shortest + exploit-gated so a bad ground note can't corrupt the
+    # corpus. _f0 is the start frame captured from _make_start_state above.
+    if _teacher_ground_enabled() and _f0 is not None:
+        _gnote = _teacher_click_note(_f0)
+        if _gnote:
+            notes = notes + " " + _gnote
 
     # R7(a) workspace counterexamples: read the dead-ends this wall accumulated on
     # PRIOR runs and tell Opus not to re-propose them (a fresh cadence otherwise

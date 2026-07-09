@@ -714,6 +714,30 @@ def main():
     ok &= _check("reroot gate: empty corpus gates any wall>0",
                  cr._wall_reachable(1, {}) is False)
 
+    # R8/B1 teacher click-target GROUNDING: the level-start frame's perception
+    # centroids are folded into the Opus-teacher FIRST-round prompt so its clicks
+    # hit real objects (run 152556Z: vc33 L4 round 1 clicked empty space — first
+    # no-op at action index 0). Pure + bounded + gate default-OFF.
+    _gframe = [[0, 0, 0, 0, 0, 0],
+               [0, 3, 3, 0, 0, 0],
+               [0, 3, 3, 0, 5, 0],
+               [0, 0, 0, 0, 5, 0],
+               [0, 0, 0, 0, 0, 0]]
+    _gnote = cr._teacher_click_note(_gframe)
+    ok &= _check("teacher grounding: note names click targets",
+                 "click targets" in _gnote and "(" in _gnote and ")" in _gnote)
+    #   the 3-blob centroid is (col2,row2); the 5-blob centroid is (col4,row3)
+    ok &= _check("teacher grounding: note carries real object centroids",
+                 "(2,2)" in _gnote and "(4,3)" in _gnote)
+    ok &= _check("teacher grounding: bounded to max_chars",
+                 len(cr._teacher_click_note(_gframe, max_chars=60)) <= 60)
+    ok &= _check("teacher grounding: empty/None frame -> '' (no crash)",
+                 cr._teacher_click_note([]) == "" and cr._teacher_click_note(None) == "")
+    ok &= _check("teacher grounding: gate OFF by default",
+                 cr._teacher_ground_enabled({}) is False)
+    ok &= _check("teacher grounding: gate ON when V21_TEACHER_GROUND=1",
+                 cr._teacher_ground_enabled({"V21_TEACHER_GROUND": "1"}) is True)
+
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
 

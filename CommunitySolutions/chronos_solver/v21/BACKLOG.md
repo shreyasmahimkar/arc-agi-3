@@ -55,8 +55,18 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    L4-end-state suffix-BFS seed or the R13 Opus teacher.
 5. **ft09 L2–L5.** Investigate mechanics (these aren't blind like L0); deepen BFS/graph budget,
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
+   [TEACHER-GROUNDING CODED + offline-verified 2026-07-09] The Opus teacher's FIRST-round prompt
+   now carries the level-start valid ACTION6 click targets (B1 perception centroids) via
+   `_teacher_click_note` in `_opus_teacher_for_solver`, env `V21_TEACHER_GROUND` (=1 in
+   run_cadence.sh). Root cause (cron 152556Z): the teacher was guessing x,y from source →
+   round-1 first click a no-op on empty space. +6 offline checks. *Remaining:* a Mac cadence
+   where the grounded round-1 plan shows non-zero delta past action index 0 on ft09 L2.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in
    `graph_explore`. *Done when:* ≥1 of L4–L6 solved+verified.
+   [TEACHER-GROUNDING CODED 2026-07-09] Same `V21_TEACHER_GROUND` grounding fixes vc33 L4's
+   round-1 no-op click (152556Z: "first no-op/failure at action index 0 … delta 0 cells"). The
+   teacher now sees the L4 start scene's object centroids. *Remaining:* a Mac cadence confirming
+   round-1 progress; for mixed-coord walls, still needs better click-target ordering.
    [PARTIAL — blitz click-REPEAT tier CODED] `blitz.blitz_solve` now repeats a single ACTION6
    coord ×K (shortest-gated), matching vc33's "hammer one component" endings (commit e049348).
    *Remaining:* a Mac cadence to confirm it commits a wall (L4–L6) whose win is a fixed-coord
