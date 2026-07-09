@@ -79,6 +79,17 @@ def main():
                  tea3.solve_wall_iterative("ls20", "s", 2, [1],
                                            lambda p: (False, "no"), max_rounds=2) is None)
 
+    # OBSERVABILITY: even when every round fails (result None), try_plan is invoked
+    # once per round WITH each proposed plan — the per-round hook the runner uses to
+    # log OPUS_TEACHER activity that would otherwise be invisible in the cron log.
+    tea3b = T.OpusTeacher(); tea3b._call = lambda s, u: '{"plan": [[1, null]]}'
+    seen = []
+    def tp_seen(plan):
+        seen.append(plan); return (False, "stalled")
+    tea3b.solve_wall_iterative("ls20", "s", 2, [1], tp_seen, max_rounds=3)
+    ok &= _check("iterative surfaces every failed round to the hook",
+                 len(seen) == 3 and all(p == [(1, None)] for p in seen))
+
     # no key -> no-op (offline guard preserved)
     os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("V21_OPUS_KEY", None)
     ok &= _check("iterative no-ops without a key",

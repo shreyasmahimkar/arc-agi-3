@@ -6,6 +6,28 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-08 22:05Z] **R13/R7 fix — restore OPUS_TEACHER observability in the iterative loop** —
+  HEALTH: runner HEALTHY/RUNNING — last COMPLETE run 194224Z `cadence exit=0`; newest cron 213152Z
+  (started 21:31Z) actively in ft09 L2 BFS (last log 21:58Z, <5m ago, within 600s budget); `.cadence.lock`
+  (21:31Z) = the live run holding it, NOT stale. Phase-2 gate 0/3 (ls20 5/7, ft09 2/6, vc33 4/7) — walls
+  uncracked, all RHAE 1.000, no regressions. ROOT CAUSE this cycle: the prior iterative-teacher refactor
+  (e41fc46) made the teacher INVISIBLE — `solve_wall_iterative` RETURNS None when every round fails verify
+  (the normal case on an uncracked wall), so the caller's single INFO line ("opus teacher proposed …") is
+  never reached. Run 213152Z proved it: ls20 L5/L6 showed only `opus WM: no candidate plan won`, NO teacher
+  line at all, whereas single-shot run 194224Z logged a "proposed 19-action plan" on every wall. The teacher
+  IS still firing (2 API rounds) — we just couldn't SEE it, breaking PART-B health reporting ("fired?
+  proposed how many? how far did it get?"). WHAT: added per-round INFO logging inside the `_try_plan` closure
+  in `cadence_runner._opus_teacher_for_solver` — each round now logs `OPUS_TEACHER round N: K-action plan
+  SOLVED` or `… failed verify — <how far it reached>` (reusing the existing `_replay_feedback` report),
+  so every attempt is visible even when the final result is None. No behavior change to the solve path
+  (logging only); teacher stays env-gated + verify + shortest-gated; corpus + offline guard untouched.
+  VERIFIED: py_compile (cadence_runner/teacher/test_teacher) green; test_teacher green with +1 new check
+  ("iterative surfaces every failed round to the hook" — try_plan invoked once per round with each proposed
+  plan even when all fail); test_offline + test_blackboard green. EXPECTED NEXT RUN: with V21_OPUS_TEACHER=1
+  + key set, ls20 L5/L6 (and every wall) should now emit `OPUS_TEACHER round 1 …` / `round 2 …` lines showing
+  the proposed length + reach — so the next cycle can judge whether Opus is getting closer and tune rounds/
+  prompt. If a round logs SOLVED, watch for the `OPUS_TEACHER solved in N actions` corpus commit.
+
 - [2026-07-08 20:05Z] **R13/R7 — iterative teach-with-feedback for the Opus teacher (V21_OPUS_ROUNDS)** —
   HEALTH: runner HEALTHY/RUNNING — newest cron 194224Z started 19:42Z, actively in ls20 L6 BFS (last log
   line 19:58Z, <5m ago, within the 600s budget); prior run 175324Z finished clean. NEW SIGNAL this run:

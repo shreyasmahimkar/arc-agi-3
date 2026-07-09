@@ -845,14 +845,29 @@ def _opus_teacher_for_solver(solver, level_idx, gid):
     # next round, instead of discarding a near-miss (this run: ls20 L5 got a 19-action
     # plan that failed verify and was thrown away). Env V21_OPUS_ROUNDS controls rounds
     # (default 2); 1 preserves the old single-shot behavior.
+    # OBSERVABILITY (this cycle): the iterative loop RETURNS None when every round
+    # fails verify (the common case on an uncracked wall), so the caller's single
+    # INFO line below ("opus teacher proposed ...") is never reached and the whole
+    # teacher effort goes invisible in the cron log — exactly what happened on run
+    # 213152Z (ls20 L5/L6 showed no teacher line, unlike single-shot run 194224Z).
+    # Log EACH round's proposed-plan length + how far it reached, so PART-B health
+    # reporting can always see the teacher fired and whether it is getting closer.
+    _round = {"n": 0}
+
     def _try_plan(p):
+        _round["n"] += 1
         try:
             solved = _verify(solver, level_idx, p)
         except Exception:
             solved = False
         if solved:
+            logger.info("[%s L%d] OPUS_TEACHER round %d: %d-action plan SOLVED",
+                        gid, level_idx, _round["n"], len(p or []))
             return True, "solved"
-        return False, _replay_feedback(solver, level_idx, p)
+        fb = _replay_feedback(solver, level_idx, p)
+        logger.info("[%s L%d] OPUS_TEACHER round %d: %d-action plan failed verify — %s",
+                    gid, level_idx, _round["n"], len(p or []), fb)
+        return False, fb
 
     try:
         rounds = int(os.environ.get("V21_OPUS_ROUNDS", "2"))
