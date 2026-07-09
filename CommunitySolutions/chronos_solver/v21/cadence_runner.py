@@ -148,6 +148,32 @@ def _should_resolve(already_solved, env=None):
     return env.get("V21_RESOLVE_SOLVED", "0") in ("1", "true", "True")
 
 
+def _wall_reachable(level_idx, corpus, solutions=None):
+    """Whether this wall's start state can be RE-ROOTED for verify/replay.
+
+    A level is re-rooted by replaying the verified plans of every prior level; if
+    any earlier level is still unsolved, `_make_start_state` returns None and the
+    engine reports "could not re-root level N to replay". That happened for every
+    wall behind the frontier on run 073852Z (ls20 L6, ft09 L3–L5, vc33 L5–L6) — and
+    for each of those levels the OPUS_TEACHER still burned 2 cloud rounds proposing
+    a plan that could NEVER be verified. This pure predicate lets the caller skip
+    the paid cloud stages (teacher / world-model) on unreachable walls and spend the
+    whole Opus budget on the one reachable frontier wall per game.
+
+    Reachable iff every prior level 0..level_idx-1 has a plan in `corpus` (this run's
+    accumulating solutions) or the solver's live `solutions` chain. Fail-OPEN: L0 is
+    always reachable and a missing/odd container never wrongly gates a wall. Pure —
+    no engine import — so test_offline covers it."""
+    if level_idx <= 0:
+        return True
+    corpus = corpus or {}
+    solutions = solutions or {}
+    for i in range(level_idx):
+        if not (corpus.get(i) or solutions.get(i)):
+            return False
+    return True
+
+
 def solve_game(gid, bfs_timeout, BFSSolver):
     """Escalating single-pass solve: for each level, keep the SHORTEST verified
     plan (existing corpus vs a fresh BFS). Returns (rows, new_corpus, improved)."""
@@ -334,7 +360,18 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # fails a wall, ask cloud Opus to read the WHITE-BOX source and construct the
         # winning sequence. Its plan is UNVERIFIED → still verify + shortest-gate +
         # exploit-refusal below. Env-gated V21_OPUS_TEACHER (needs ANTHROPIC_API_KEY).
-        if best is None and os.environ.get("V21_OPUS_TEACHER", "0") in ("1", "true", "True"):
+        # Frontier gate: a wall behind an unsolved earlier wall CANNOT be re-rooted,
+        # so the engine can never verify a plan for it — every paid Opus round on such
+        # a level is wasted ("could not re-root level N to replay"). Only spend the
+        # cloud teacher / world-model budget on re-rootable (frontier) walls; deeper
+        # walls unlock automatically once the frontier one is solved this run.
+        _reroot_ok = _wall_reachable(lvl, corpus, getattr(solver, "solutions", None))
+        if best is None and not _reroot_ok and (
+                os.environ.get("V21_OPUS_TEACHER", "0") in ("1", "true", "True")
+                or os.environ.get("V21_OPUS_WM", "0") in ("1", "true", "True")):
+            logger.info("[%s L%d] wall gated behind an unsolved earlier level — "
+                        "skipping cloud teacher/WM (cannot re-root to verify)", gid, lvl)
+        if best is None and _reroot_ok and os.environ.get("V21_OPUS_TEACHER", "0") in ("1", "true", "True"):
             try:
                 tsol = _opus_teacher_for_solver(solver, lvl, gid)
             except Exception as e:
@@ -348,7 +385,7 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # from the white-box source; we exec it, plan in it, verify on the engine, and
         # persist it to brain/wm/<gid>/model.py. The generalization spine — more general
         # than a one-off plan. Env-gated V21_OPUS_WM (needs ANTHROPIC_API_KEY).
-        if best is None and os.environ.get("V21_OPUS_WM", "0") in ("1", "true", "True"):
+        if best is None and _reroot_ok and os.environ.get("V21_OPUS_WM", "0") in ("1", "true", "True"):
             try:
                 wsol = _opus_world_model_for_solver(solver, lvl, gid)
             except Exception as e:
@@ -452,6 +489,70 @@ def _bb_seed_candidates(bb, level):
         return bb.seed_plans(level)
     except Exception:
         return []
+
+
+# --- R7(a) workspace counterexamples (DREAMTEAM arXiv:2605.09650) -------------
+# "counterexamples == losses": a wall plan that FAILED verify is negative-constraint
+# evidence for the NEXT run. Today the Opus teacher's R7 teach-with-feedback loop
+# is WITHIN a single run (acc_notes is in-memory) — every fresh Mac cadence starts
+# blank and can re-propose the exact plan that already reached levels_completed=5
+# last run (observed run 073852Z: ls20 L5 teacher rounds 1&2 both stalled at 5/6).
+# These pure helpers PERSIST failed teacher plans to the per-game blackboard's
+# dead_ends and feed them back as a "do NOT repeat" note on the next run. Env-gated
+# V21_WORKSPACE_COUNTEREX (default OFF), independent of the full V21_BLACKBOARD
+# seeding path; every op degrades to a no-op so the teacher path is never broken.
+def _counterex_enabled(env=None):
+    env = os.environ if env is None else env
+    return env.get("V21_WORKSPACE_COUNTEREX", "0") in ("1", "true", "True")
+
+
+def _counterex_open(gid, env=None):
+    """Open the per-game blackboard purely to persist/read teacher counterexamples,
+    independent of V21_BLACKBOARD. None when gated off or on any failure."""
+    if not _counterex_enabled(env):
+        return None
+    try:
+        from brain.blackboard import Blackboard
+        return Blackboard(gid)
+    except Exception as e:
+        logger.debug("[%s] counterex open failed: %s", gid, e)
+        return None
+
+
+def _counterex_notes(bb, level, max_shown=6, max_len=900):
+    """READ side: a compact 'do NOT repeat these action sequences' note built from
+    the blackboard's persisted dead_ends, so a next-run teacher avoids a plan that
+    already failed verify. Pure — no engine. Empty string when bb is None / empty."""
+    if bb is None:
+        return ""
+    try:
+        prefixes = bb.avoid_prefixes()
+    except Exception:
+        return ""
+    lines = []
+    for p in prefixes[-max_shown:]:
+        acts = ",".join(str(s[0]) for s in p if s)
+        if acts:
+            lines.append("[%d actions: %s]" % (len(p), acts))
+    if not lines:
+        return ""
+    note = ("Previously-FAILED plans on this wall (do NOT repeat these action "
+            "sequences): " + "; ".join(lines))
+    return note[:max_len]
+
+
+def _counterex_record(bb, level, plan, source="opus"):
+    """WRITE side: persist a failed teacher plan as a dead_end and save to disk so
+    the lesson survives to the next cadence. Pure — no engine. No-op on None/empty."""
+    if bb is None or not plan:
+        return bb
+    try:
+        bb.teach_dead_end(plan, source=source)
+        bb.consolidate()
+        bb.save()
+    except Exception as e:
+        logger.debug("counterex record failed (L%s): %s", level, e)
+    return bb
 
 
 def _toddler_enabled(env=None):
@@ -840,6 +941,16 @@ def _opus_teacher_for_solver(solver, level_idx, gid):
         pass
     notes = f"local blitz/BFS/Go-Explore/Qwen all failed level {level_idx}."
 
+    # R7(a) workspace counterexamples: read the dead-ends this wall accumulated on
+    # PRIOR runs and tell Opus not to re-propose them (a fresh cadence otherwise
+    # starts blank and re-tries the same near-miss). Env V21_WORKSPACE_COUNTEREX;
+    # degrades to no-op when off. The bb handle is reused to RECORD each round's
+    # failure below so the constraint grows across runs.
+    _cex_bb = _counterex_open(gid)
+    _cex = _counterex_notes(_cex_bb, level_idx)
+    if _cex:
+        notes = notes + " " + _cex
+
     # R7 teach-with-feedback: EXECUTE each proposed plan on a fresh fork and feed the
     # engine's failure report (how far it got + where it stalled) back to Opus for the
     # next round, instead of discarding a near-miss (this run: ls20 L5 got a 19-action
@@ -867,6 +978,8 @@ def _opus_teacher_for_solver(solver, level_idx, gid):
         fb = _replay_feedback(solver, level_idx, p)
         logger.info("[%s L%d] OPUS_TEACHER round %d: %d-action plan failed verify — %s",
                     gid, level_idx, _round["n"], len(p or []), fb)
+        # R7(a): persist this dead-end so the NEXT run's teacher won't re-propose it.
+        _counterex_record(_cex_bb, level_idx, p)
         return False, fb
 
     try:
@@ -931,6 +1044,17 @@ def _replay_feedback(solver, level_idx, plan):
         if stalled_at is not None:
             parts.append("first no-op/failure at action index %d (%s)"
                          % (stalled_at, (plan[stalled_at][0] if stalled_at < len(plan) else "?")))
+        # R6/R8: hand the teacher a perception-first view of the STUCK end state
+        # (objects + delta-from-start), not just a level count, so the next R13
+        # round reasons over what the wall looks like. Pure + bounded; degrades
+        # to no extra note on any error.
+        try:
+            from brain.summarize import plan_failure_scene
+            note = plan_failure_scene(f0, prev)
+            if note:
+                parts.append(note)
+        except Exception:
+            pass
         return "; ".join(parts)
     except Exception as e:
         return "replay feedback unavailable: %s" % e
@@ -952,24 +1076,40 @@ def _harvest_toddler_samples(solver, level_idx, gid):
         res = None
     if res is None:
         return
+    import random
     game, f0 = res
-    f0 = np.asarray(f0)
-    frame_list = f0.tolist() if hasattr(f0, "tolist") else f0
     avail = [a for a in (getattr(game, "_available_actions", []) or []) if 1 <= a <= 5] or [1, 2, 3, 4, 5]
+    steps = int(os.environ.get("V21_TODDLER_HARVEST_STEPS", "24"))   # rollout length
     samples = []
-    for a in avail:
+    cur = game
+    curf = np.asarray(f0)
+    for _ in range(steps):
+        fl = curf.tolist() if hasattr(curf, "tolist") else curf
+        # probe EVERY action once from the current state (frame,action->changed/won)
+        for a in avail:
+            try:
+                g = solver._restore(solver._snap(cur))
+                r = g.perform_action(ActionInput(id=GameAction.from_id(a)), raw=True)
+                nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+                changed = bool(nf is not None and not np.array_equal(nf, curf))
+                won = int(getattr(r, "levels_completed", 0) or 0) >= level_idx + 1
+                samples.append({"frame": fl, "action": a, "changed": changed, "won": won})
+            except Exception:
+                continue
+        # advance one random step to visit a NEW state (breadth of training data)
         try:
-            g = solver._restore(solver._snap(game))
-            r = g.perform_action(ActionInput(id=GameAction.from_id(a)), raw=True)
-            nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
-            changed = bool(nf is not None and not np.array_equal(nf, f0))
-            won = int(getattr(r, "levels_completed", 0) or 0) >= level_idx + 1
-            samples.append({"frame": frame_list, "action": a, "changed": changed, "won": won})
+            nxt = solver._restore(solver._snap(cur))
+            r = nxt.perform_action(ActionInput(id=GameAction.from_id(random.choice(avail))), raw=True)
+            if getattr(r, "frame", None):
+                curf = np.array(r.frame[-1]); cur = nxt
+            else:
+                break
         except Exception:
-            continue
+            break
     if samples:
         TN.append_samples(gid, samples)
-        logger.info("[%s L%d] toddler harvest: +%d samples", gid, level_idx, len(samples))
+        logger.info("[%s L%d] toddler harvest: +%d samples (rollout=%d)",
+                    gid, level_idx, len(samples), steps)
 
 
 def _runtime_coder_for_solver(solver, level_idx, llm, max_len):
@@ -1279,6 +1419,24 @@ def main():
                 summary_lines.append(f"- toddler_net[{gid}]: {status}")
         except Exception as e:
             logger.warning("toddler_net train skipped: %s", e)
+
+    # (1b2) OPUS-AS-ML-ENGINEER (R13 x R11): Opus DESIGNS the toddler's PyTorch net.
+    # Champion/challenger on held-out accuracy — Opus writes an improved build_net, we
+    # train+score it on the Mac GPU, and ADOPT it (brain/toddler/<gid>_arch.py) only if
+    # it beats the current net. Then the next train uses the adopted architecture.
+    # Env-gated V21_OPUS_ARCH (needs ANTHROPIC_API_KEY + torch + enough samples).
+    if os.environ.get("V21_OPUS_ARCH", "0") in ("1", "true", "True"):
+        try:
+            from brain.toddler_net import opus_arch_step
+            from brain.teacher import OpusTeacher
+            teacher = OpusTeacher()
+            if teacher.available():
+                for gid in games:
+                    st = opus_arch_step(gid, teacher)
+                    logger.info("[%s] opus_arch: %s", gid, st)
+                    summary_lines.append(f"- opus_arch[{gid}]: {st}")
+        except Exception as e:
+            logger.warning("opus_arch step skipped: %s", e)
 
     # (1c) PHASE 2 (274-game generalization) — HARD-GATED on the 3 default games
     # being fully cracked. Until ls20+ft09+vc33 are 100% solved this is a no-op that

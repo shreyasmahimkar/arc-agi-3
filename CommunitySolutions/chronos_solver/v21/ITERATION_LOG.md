@@ -6,6 +6,47 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-09] **R13/frontier-gate cloud-budget concentration** — added pure predicate
+  `cadence_runner._wall_reachable(level_idx, corpus, solutions)` (a wall is re-rootable iff
+  every prior level has a verified plan) and gated the two PAID cloud stages — OPUS_TEACHER
+  and OPUS_WM — behind it in `solve_game`. Motivation: run 073852Z showed the teacher fired on
+  EVERY unsolved wall, but for the 6 walls behind the frontier (ls20 L6, ft09 L3–L5, vc33 L5–L6)
+  every round returned "could not re-root level N to replay" — 2 Opus API rounds each burned on a
+  plan the engine can never verify. Now those levels log one skip line and the whole Opus budget
+  goes to the single re-rootable frontier wall per game (ls20 L5, ft09 L2, vc33 L4); deeper walls
+  unlock automatically the moment the frontier one is solved this run. Fail-OPEN (never wrongly
+  gates a reachable wall). Verified: py_compile + test_offline (+6 checks: L0/frontier/gated/gap/
+  solutions-chain/empty) + test_teacher + test_blackboard all green; corpus + offline guard
+  untouched; no v19/v20 touched. Expected effect: next Mac cadence, cron log shows the teacher
+  firing ONLY on ls20 L5 / ft09 L2 / vc33 L4 (not the 6 unreachable walls), so Opus rounds land
+  where they can actually verify — more effective near-miss iteration on the frontier.
+
+- [2026-07-09 04:05Z] **R6/R8+R13 — perception-first feedback for the Opus teacher's iterative retry** —
+  HEALTH: runner HEALTHY/RUNNING — newest cron 032443Z (started 03:24Z/23:24 EDT) LIVE, last log line 00:01 EDT
+  (~1m ago) mid ft09 L2 OPUS_TEACHER round 2; no `cadence exit=` yet. Phase-2 gate 0/3 (ls20 5/7, ft09 2/6,
+  vc33 4/7) — all RHAE 1.000, no regressions, no walls newly cracked. NEW SIGNAL: R13 iterative teacher is now
+  firing live (ls20 L5 got 9- & 19-action plans, ls20 L6 got 1- & 10-action, ft09 L2 got 1- & 10-action) but
+  every round "failed verify" as a NEAR-MISS reaching levels_completed = goal-1; the only thing fed back to Opus
+  for the next round was that level COUNT (`_replay_feedback` → `reached levels_completed=5 of goal 6`), which
+  R8 (perception is ~80% of ARC failures) says is the wrong signal to hand a reasoner. WHAT: added pure
+  `brain/summarize.plan_failure_scene(start_frame, final_frame)` — a bounded, deterministic, perception-first
+  note (final-frame object list + `perception.diff` delta-vs-level-start: cells changed / appeared / disappeared
+  / recolored) built from the SAME brain.perception used by the R6/R8 coder digest; wired into
+  `cadence_runner._replay_feedback` so each failed teacher round now feeds Opus WHAT the stuck state looks like
+  and HOW it differs from the start, not just a number. Additive, imports only brain.perception, degrades to no
+  extra note on any error; teacher stays env-gated + verify + shortest-gated; corpus + offline guard untouched.
+  VERIFIED: py_compile (summarize/cadence_runner/test_offline) green; test_offline green with +4 new checks
+  (names scene+objects, reports appeared/disappeared/recolored delta, length-bounded on a 64×64 frame, never
+  raises→str on None/degenerate frames); test_teacher + test_blackboard green. COMMIT NOTE / DEVIATION: the repo
+  arrived with a STALE INDEX that had staged a reversion of R13's `_with_retries`/`_is_transient` from teacher.py
+  (63 deletions) — I `git reset` to drop it (NOT committed; working tree teacher.py == HEAD, R13 intact) and
+  staged only my source files, so the R13-robustness commit is preserved. A prior uncommitted `_harvest_toddler_
+  samples` rollout change (already live on the Mac — "toddler harvest: +96 samples (rollout=24)") rode along in
+  cadence_runner.py; runtime state (brain/toddler/ls20.jsonl) left uncommitted. EXPECTED NEXT RUN: on a wall
+  where the R13 teacher near-misses, the round-2 prompt now contains a `final-frame scene …; delta vs level start
+  …` line, giving Opus object-level context to correct its plan; watch ls20 L5 / ft09 L2 for a teacher round
+  that crosses the last level after the perception feedback.
+
 - [2026-07-09 02:10Z] **R13 robustness — bounded retry-with-backoff for the Opus teacher's network call** —
   HEALTH: runner HEALTHY/RUNNING — newest cron 213152Z (started 21:31Z/17:31 EDT) still LIVE, last log line
   21:54 EDT (<10m ago) in an ft09 L3 600s BFS pass, no `cadence exit=` yet; `.cadence.lock` held by the live
@@ -435,3 +476,28 @@ builds on prior attempts instead of repeating them. Format:
 ## probe still needs `V21_EVOLVE_PROBE=1` (+ adequate `--bfs-timeout`) to PROMOTE; (d) ENV:
 ## Ollama returned HTTP 500 last run (model likely not pulled) — evolve stays skipped until
 ## the user pulls/fixes their local Ollama (or points backend at the local Qwen HF model).
+
+- [2026-07-09] **R7(a) workspace counterexamples** — the Opus teacher now PERSISTS each
+  failed wall plan as a blackboard dead_end and reads prior-run dead_ends back as a "do NOT
+  repeat these action sequences" note (`_counterex_open/_counterex_notes/_counterex_record`
+  in cadence_runner; wired into `_opus_teacher_for_solver` notes + `_try_plan` failure path;
+  env `V21_WORKSPACE_COUNTEREX`, exported =1 in run_cadence.sh). Motivation: run 073852Z
+  showed ls20 L5 teacher rounds 1&2 both stall at levels_completed=5 — a fresh cadence
+  otherwise starts blank and re-proposes the same near-miss (the R7 feedback loop is only
+  WITHIN a run). Verified: py_compile + test_offline (+8 checks: gate/open/notes/record/
+  persist) + test_teacher + test_blackboard all green; corpus + offline guard untouched.
+  Expected effect: next Mac cadence, the teacher's ls20 L5 notes carry last run's failed
+  action sequences so it explores away from the 5/6 dead-end instead of repeating it.
+
+- [2026-07-09 14:10Z] **commit-recovery — landed the staged-but-uncommitted frontier-gate +
+  perception-feedback + R7(a) counterexamples cycle.** The repo arrived with a large staged
+  changeset (752 insertions, incl. `_wall_reachable` frontier gate, `summarize.plan_failure_scene`,
+  and `_counterex_*`) that a prior cycle offline-verified but never committed (commit had not
+  landed — index left staged). Re-verified green before committing: py_compile (cadence_runner/
+  summarize/teacher/toddler_net) + test_offline (reroot-gate +6, counterex +8, perception-feedback
+  +4) + test_teacher + test_blackboard + test_toddler ALL PASS. Cleaned the commit scope: dropped
+  a stray zero-byte `.__perm_test` and runtime `brain/toddler/ls20.jsonl` from the index, ignored
+  `.__perm_test`, kept the root `.gitignore` change out (v21-only commit). Corpus + offline guard
+  untouched; no v19/v20. Expected effect: next Mac cadence, OPUS_TEACHER fires ONLY on the
+  re-rootable frontier wall per game (ls20 L5 / ft09 L2 / vc33 L4), not the 6 unreachable walls
+  that logged "could not re-root" in run 073852Z — the whole Opus budget lands where it can verify.

@@ -103,3 +103,45 @@ def digest(observations, max_objects=_MAX_OBJECTS, max_chars=_MAX_CHARS):
     if len(out) > max_chars:
         out = out[:max_chars - 3] + "..."
     return out
+
+
+def plan_failure_scene(start_frame, final_frame, max_objects=6, max_chars=600):
+    """Perception-first description of where a FAILED plan ENDED (R6/R8 + R13).
+
+    The Opus teacher's iterative retry (cadence_runner._opus_teacher_for_solver ->
+    solve_wall_iterative) currently only feeds Opus a level-count report
+    ("reached levels_completed=5 of goal 6"). Two findings say that's the wrong
+    signal to hand a reasoner: R8 (perception is the real bottleneck) and R6
+    (compress the transcript into a bounded structured digest). This turns the
+    stuck END frame — and how it differs from the level start — into a compact
+    symbolic note so the next round reasons over OBJECTS and DELTAS, not just a
+    number. Bounded + deterministic + pure (imports only brain.perception).
+    Never raises: any parse problem returns "" so the teach loop is unbroken.
+    """
+    try:
+        sc = _P.scene(final_frame)
+    except Exception:
+        return ""
+    if not sc:
+        return ""
+    H, W = sc["dims"]
+    parts = ["final-frame scene: dims=%dx%d background=%s n_objects=%d"
+             % (H, W, sc["background"], sc["n_objects"])]
+    objs = sorted(sc["objects"], key=lambda o: (-o["size"], o["bbox"][0], o["bbox"][1]))
+    shown = objs[:max_objects]
+    if shown:
+        parts.append("largest objects: " + "; ".join(
+            "color=%d size=%d centroid=(row=%d,col=%d)"
+            % (o["color"], o["size"], o["centroid"][0], o["centroid"][1])
+            for o in shown))
+    try:
+        d = _P.diff(start_frame, final_frame)
+        parts.append("delta vs level start: %d cells changed (%d appeared, %d disappeared, %d recolored)"
+                     % (d["n_changed"], len(d["appeared"]),
+                        len(d["disappeared"]), len(d["recolored"])))
+    except Exception:
+        pass
+    out = "; ".join(parts)
+    if len(out) > max_chars:
+        out = out[:max_chars - 3] + "..."
+    return out

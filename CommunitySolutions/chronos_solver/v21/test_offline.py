@@ -112,6 +112,27 @@ def main():
                  "n_objects" not in rc._obs_block(_obs))
     os.environ.pop("V21_CODER_DIGEST", None)
 
+    # 5a3) Perception-first teacher feedback (R6+R8+R13): summarize.plan_failure_scene
+    #      turns a stuck END frame + its delta-from-start into the note the Opus
+    #      teacher's next iterative round reads (cadence_runner._replay_feedback).
+    #      Must name the surviving objects, report the delta, stay bounded, and
+    #      never raise on a degenerate/None frame.
+    _pstart = [[0, 0, 0, 0], [0, 3, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+    _pend = [[0, 0, 0, 0], [0, 3, 0, 0], [0, 0, 0, 0], [0, 0, 5, 0]]  # a 5 appeared
+    _fb = _SUM.plan_failure_scene(_pstart, _pend)
+    ok &= _check("plan_failure_scene names scene + objects",
+                 "final-frame scene" in _fb and "n_objects=2" in _fb and "color=5" in _fb)
+    ok &= _check("plan_failure_scene reports delta vs start",
+                 "delta vs level start" in _fb and "1 appeared" in _fb)
+    ok &= _check("plan_failure_scene is length-bounded",
+                 len(_SUM.plan_failure_scene(
+                     [[0] * 64 for _ in range(64)],
+                     [[(r + c) % 15 for c in range(64)] for r in range(64)],
+                     max_chars=600)) <= 600)
+    ok &= _check("plan_failure_scene never raises -> str",
+                 isinstance(_SUM.plan_failure_scene(None, None), str)
+                 and isinstance(_SUM.plan_failure_scene([[1]], None), str))
+
     # 5b) Stage-3.5 replay_wins (BACKLOG #3): pure fork-replay over injected
     #     clone/play closures — the try_plan_fn contract cadence_runner wires in.
     def _clone(s):
@@ -585,6 +606,27 @@ def main():
     ok &= _check("bb persist: fragments survive save/reload",
                  len(_bb2.data["fragments"]) >= 1)
 
+    # 12b) R7(a) workspace counterexamples — failed teacher plans persist as
+    #      dead_ends and feed back as a 'do NOT repeat' note next run (env-gated).
+    ok &= _check("counterex gate: OFF by default", cr._counterex_enabled(env={}) is False)
+    ok &= _check("counterex gate: ON with flag",
+                 cr._counterex_enabled(env={"V21_WORKSPACE_COUNTEREX": "1"}) is True)
+    ok &= _check("counterex open: None when gated off", cr._counterex_open("cx00", env={}) is None)
+    _cx = cr._counterex_open("cx00", env={"V21_WORKSPACE_COUNTEREX": "1"})
+    ok &= _check("counterex open: Blackboard when gated on", _cx is not None)
+    ok &= _check("counterex notes: empty when no dead_ends", cr._counterex_notes(_cx, 5) == "")
+    _fail = [(2, {}), (3, {}), (6, {"x": 7, "y": 8})]
+    cr._counterex_record(_cx, 5, _fail, source="opus")
+    _n = cr._counterex_notes(_cx, 5)
+    ok &= _check("counterex notes: names failed action seq",
+                 "2,3,6" in _n and "do NOT repeat" in _n)
+    ok &= _check("counterex record: no-op on None bb / empty plan",
+                 cr._counterex_record(None, 5, _fail) is None
+                 and cr._counterex_record(_cx, 5, []) is _cx)
+    _cx2 = cr._counterex_open("cx00", env={"V21_WORKSPACE_COUNTEREX": "1"})
+    ok &= _check("counterex persist: dead_end survives save/reload",
+                 len(_cx2.data["dead_ends"]) >= 1)
+
     # 13) Epic C3 toddler — intuitive action orderer (corpus prior + online
     #     action_effects, frame-aware) behind the fixed order_actions interface.
     from brain.toddler import Toddler
@@ -634,6 +676,20 @@ def main():
 
     _sh.rmtree(_BBDIR, ignore_errors=True)
     os.environ.pop("V21_BLACKBOARD_DIR", None)
+
+    # frontier gate: only re-rootable walls get the paid cloud teacher/WM budget.
+    ok &= _check("reroot gate: L0 always reachable",
+                 cr._wall_reachable(0, {}) is True)
+    ok &= _check("reroot gate: frontier wall reachable (all prior solved)",
+                 cr._wall_reachable(5, {0: [1], 1: [1], 2: [1], 3: [1], 4: [1]}) is True)
+    ok &= _check("reroot gate: wall behind an unsolved earlier wall is gated",
+                 cr._wall_reachable(6, {0: [1], 1: [1], 2: [1], 3: [1], 4: [1]}) is False)
+    ok &= _check("reroot gate: gap in prior levels gates the wall",
+                 cr._wall_reachable(3, {0: [1], 2: [1]}) is False)
+    ok &= _check("reroot gate: solver.solutions chain also re-roots",
+                 cr._wall_reachable(2, {}, {0: [1], 1: [1]}) is True)
+    ok &= _check("reroot gate: empty corpus gates any wall>0",
+                 cr._wall_reachable(1, {}) is False)
 
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1

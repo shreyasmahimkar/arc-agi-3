@@ -38,6 +38,26 @@ PROMPT = ("Game source ({gid}.py):\n```python\n{src}\n```\n\n"
           "Reason through the source privately, then output ONLY the JSON plan (shortest).")
 
 
+ARCH_SYSTEM = (
+    "You are an expert ML engineer improving a TINY frame-change/action predictor for "
+    "ARC-AGI-3 (a StochasticGoose/TRM-style net trained on a Mac MPS GPU). Output ONLY a "
+    "Python module (no prose, no markdown fences) defining "
+    "`def build_net(n_colors, n_actions, grid):` that returns a torch.nn.Module. The net "
+    "takes a LongTensor (B, grid, grid) of colour ids and returns a tuple "
+    "(change_logits, win_logits), each shape (B, n_actions). Keep it SMALL (<2M params), "
+    "MPS-safe (only standard nn: Embedding, Conv2d, Linear, ReLU/GELU, LayerNorm/BatchNorm, "
+    "pooling, residual adds — NO custom CUDA, NO external deps). `import torch` and "
+    "`import torch.nn as nn` are allowed.")
+
+ARCH_PROMPT = (
+    "Current architecture:\n```python\n{cur}\n```\n\n"
+    "Held-out validation accuracy of the current net: {val:.3f} over {n} samples. "
+    "Propose an IMPROVED build_net that should RAISE held-out change/win accuracy — e.g. "
+    "residual conv blocks, a small self-attention over grid cells, better motion inductive "
+    "bias, light regularisation. Keep it tiny and MPS-safe. Output ONLY the Python module "
+    "defining build_net.")
+
+
 def _key():
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("V21_OPUS_KEY")
 
@@ -135,6 +155,23 @@ class OpusTeacher:
             logger.warning("[%s] opus teacher call failed: %s", gid, e)
             return None
         return parse_plan(raw)
+
+    def write_toddler_arch(self, current_code, val_acc, n_samples):
+        """OPUS-AS-ML-ENGINEER: write an IMPROVED PyTorch architecture for the neural
+        toddler (the frame-change/win predictor). Returns a Python module defining
+        `build_net(n_colors, n_actions, grid) -> nn.Module` (UNVERIFIED — the caller
+        trains it and only ADOPTS it if it beats the current net on held-out accuracy).
+        This is Opus designing the tiny net, not solving a level."""
+        if not self.available():
+            return None
+        user = ARCH_PROMPT.format(cur=(current_code or "")[:8000],
+                                  val=float(val_acc or 0.0), n=int(n_samples or 0))
+        try:
+            raw = self._call(ARCH_SYSTEM, user)
+        except Exception as e:
+            logger.warning("opus arch call failed: %s", e)
+            return None
+        return _strip_module(raw)
 
     def solve_wall_iterative(self, gid, source_code, level_idx, avail,
                              try_plan, max_rounds=None, notes=""):

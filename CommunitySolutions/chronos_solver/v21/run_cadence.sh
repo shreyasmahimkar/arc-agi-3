@@ -32,6 +32,8 @@ set +a
 export V21_OPUS_TEACHER="${V21_OPUS_TEACHER:-1}"    # Stage-3.6: on a wall all local stages failed, ask cloud Opus to read the WHITE-BOX source and construct the plan; verify+shortest-gated + exploit-refused. No-ops (skips) if ANTHROPIC_API_KEY is unset.
 export V21_OPUS_ROUNDS="${V21_OPUS_ROUNDS:-2}"      # R7 teach-with-feedback: EXECUTE each proposed plan on a fork, feed the failure report (how far it got) back to Opus for up to N rounds instead of discarding a near-miss (this-run signal: ls20 L5 got a 19-action plan that failed verify). 1 = old single-shot.
 export V21_OPUS_WM="${V21_OPUS_WM:-1}"              # Stage-3.7: ask Opus to WRITE an executable WorldModel .py from the white-box source (persisted to brain/wm/<gid>/model.py); exec+plan+verify on the engine. The B2 world-model spine. Needs ANTHROPIC_API_KEY.
+export V21_OPUS_ARCH="${V21_OPUS_ARCH:-1}"          # Opus-as-ML-engineer: each run Opus DESIGNS an improved PyTorch net for the neural toddler; champion/challenger on held-out accuracy, ADOPT (brain/toddler/<gid>_arch.py) only if it beats the current net. Needs ANTHROPIC_API_KEY + torch + >=200 samples.
+export V21_WORKSPACE_COUNTEREX="${V21_WORKSPACE_COUNTEREX:-1}"  # R7(a): persist each FAILED Opus-teacher wall plan as a blackboard dead_end and feed it back next run as a 'do NOT repeat' constraint (a fresh cadence otherwise re-proposes the same near-miss — run 073852Z: ls20 L5 rounds 1&2 both stalled at levels_completed=5). Env-gated, degrades to no-op; corpus untouched.
 
 # ---- Phase 2: 274-game generalization corpus (CONTINGENT on the 3 games) --------
 # Safe to leave ON: it is a no-op until ls20+ft09+vc33 are 100% solved, then it

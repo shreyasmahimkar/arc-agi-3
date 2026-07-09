@@ -227,6 +227,7 @@ R7. **Workspace optimization: evolve the persistent substrate, not the weights**
     only the workspace-as-trainable-substrate discipline. *Done when:* a Mac cadence shows a wall the
     coder previously failed is not re-tried down the same dead end (counterexample recall), or a
     challenger promotes on equal-RHAE-but-fewer-actions.
+    [CODED + offline-verified 2026-07-09] R7(a) DONE: `_counterex_open/_counterex_notes/_counterex_record` in cadence_runner persist each FAILED Opus-teacher plan as a blackboard dead_end and feed prior-run dead_ends back as a 'do NOT repeat' note (`_opus_teacher_for_solver` notes + `_try_plan`); env `V21_WORKSPACE_COUNTEREX` (exported =1). +8 offline checks. *Remaining:* R7(b) action-frugality tie-break in evolve; a Mac cadence where the teacher avoids last run's ls20 L5 near-miss.
 R8. **Perception is the real bottleneck — feed the coder a symbolic scene description, not raw grids**
     (CMU/UMich/UCSD/UIUC, arXiv:2512.21329, "Your Reasoning Benchmark May Not Test Reasoning:
     Revealing Perception Bottleneck in Abstract Reasoning Benchmarks"; abs
