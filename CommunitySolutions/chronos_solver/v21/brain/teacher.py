@@ -42,6 +42,51 @@ def _key():
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("V21_OPUS_KEY")
 
 
+def _is_transient(e):
+    """True for network errors worth RETRYING (R13 robustness). The Mac cadence
+    box has intermittent DNS on the launchd network path — run 213152Z lost the
+    Opus teacher on ft09 to a bare `urlopen error [Errno 8] nodename nor servname
+    provided` at 18:09/18:27 EDT even though the SAME endpoint answered for ls20 at
+    17:48. A single transient blip must not silently kill the teacher on a wall it
+    could crack. Retry DNS/connection/timeout + HTTP 429/5xx; do NOT retry 4xx
+    (bad key / bad request) — those won't fix themselves."""
+    import urllib.error, socket
+    if isinstance(e, urllib.error.HTTPError):
+        return e.code == 429 or 500 <= e.code < 600
+    if isinstance(e, urllib.error.URLError):
+        return True            # DNS ('nodename nor servname'), refused, unreachable
+    if isinstance(e, (socket.timeout, TimeoutError, ConnectionError, OSError)):
+        return True
+    return False
+
+
+def _with_retries(fn, tries, base_backoff, sleep=None):
+    """Call fn(); on a TRANSIENT error retry up to `tries` total attempts with
+    exponential backoff (capped 8s). Non-transient errors raise immediately. Pure
+    control-flow (network lives in fn), so it is fully offline-testable with a fake
+    fn + a no-op sleep. Returns fn()'s value or re-raises the last error."""
+    import time
+    if sleep is None:
+        sleep = time.sleep
+    tries = max(1, int(tries))
+    last = None
+    for i in range(tries):
+        try:
+            return fn()
+        except Exception as e:                      # noqa: BLE001 — classify below
+            last = e
+            if i + 1 >= tries or not _is_transient(e):
+                raise
+            back = min(float(base_backoff) * (2 ** i), 8.0)
+            logger.info("[opus] transient network error (attempt %d/%d): %s%s",
+                        i + 1, tries, e,
+                        (" — retrying in %.1fs" % back) if back > 0 else " — retrying")
+            if back > 0:
+                sleep(back)
+    if last is not None:                            # pragma: no cover — loop always raises/returns
+        raise last
+
+
 class OpusTeacher:
     def __init__(self, model=_MODEL, max_tokens=4096):
         self.model, self.max_tokens = model, max_tokens
@@ -53,17 +98,25 @@ class OpusTeacher:
         import urllib.request
         body = {"model": self.model, "max_tokens": self.max_tokens,
                 "system": system, "messages": [{"role": "user", "content": user}]}
-        req = urllib.request.Request(
-            _API, data=json.dumps(body).encode(),
-            headers={"content-type": "application/json",
-                     "x-api-key": _key(),
-                     "anthropic-version": "2023-06-01"})
+        payload = json.dumps(body).encode()
         deadline = int(os.environ.get("V21_OPUS_DEADLINE", "180"))
-        with urllib.request.urlopen(req, timeout=deadline) as r:
-            data = json.loads(r.read())
-        # messages API returns {"content":[{"type":"text","text":...}], ...}
-        parts = data.get("content", [])
-        return "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+
+        def _once():
+            req = urllib.request.Request(
+                _API, data=payload,
+                headers={"content-type": "application/json",
+                         "x-api-key": _key(),
+                         "anthropic-version": "2023-06-01"})
+            with urllib.request.urlopen(req, timeout=deadline) as r:
+                data = json.loads(r.read())
+            # messages API returns {"content":[{"type":"text","text":...}], ...}
+            parts = data.get("content", [])
+            return "".join(p.get("text", "") for p in parts if p.get("type") == "text")
+
+        # R13 robustness: recover from intermittent DNS/network on the cadence box.
+        tries = int(os.environ.get("V21_OPUS_RETRIES", "3"))
+        backoff = float(os.environ.get("V21_OPUS_RETRY_BACKOFF", "1.5"))
+        return _with_retries(_once, tries, backoff)
 
     def solve_wall(self, gid, source_code, level_idx, avail, notes=""):
         """Ask Opus for a candidate plan. Returns list[(action_id, data)] or None.

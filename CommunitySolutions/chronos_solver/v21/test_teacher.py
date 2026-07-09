@@ -90,6 +90,53 @@ def main():
     ok &= _check("iterative surfaces every failed round to the hook",
                  len(seen) == 3 and all(p == [(1, None)] for p in seen))
 
+    # --- R13 robustness: transient network retry (_is_transient / _with_retries) ----
+    import urllib.error, socket
+    ok &= _check("URLError is transient",
+                 T._is_transient(urllib.error.URLError("nodename nor servname")) is True)
+    ok &= _check("socket timeout is transient", T._is_transient(socket.timeout()) is True)
+    ok &= _check("HTTP 503 is transient",
+                 T._is_transient(urllib.error.HTTPError("u", 503, "x", {}, None)) is True)
+    ok &= _check("HTTP 429 is transient",
+                 T._is_transient(urllib.error.HTTPError("u", 429, "x", {}, None)) is True)
+    ok &= _check("HTTP 401 is NOT transient (bad key won't self-heal)",
+                 T._is_transient(urllib.error.HTTPError("u", 401, "x", {}, None)) is False)
+    ok &= _check("ValueError is NOT transient", T._is_transient(ValueError("x")) is False)
+
+    # _with_retries: fail twice (DNS) then succeed -> returns the value; no real sleep
+    naps = []
+    calls = {"n": 0}
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.URLError("nodename nor servname provided")
+        return "OK"
+    ok &= _check("retries recover a transient blip",
+                 T._with_retries(flaky, tries=3, base_backoff=0, sleep=naps.append) == "OK"
+                 and calls["n"] == 3)
+    # exhausts on a persistent transient error -> re-raises the last one
+    persist = {"n": 0}
+    def always_dns():
+        persist["n"] += 1
+        raise urllib.error.URLError("nodename nor servname provided")
+    raised = False
+    try:
+        T._with_retries(always_dns, tries=3, base_backoff=0, sleep=naps.append)
+    except urllib.error.URLError:
+        raised = True
+    ok &= _check("persistent transient exhausts then raises", raised and persist["n"] == 3)
+    # a non-transient error is raised on the FIRST try (no wasted retries)
+    hard = {"n": 0}
+    def bad_request():
+        hard["n"] += 1
+        raise urllib.error.HTTPError("u", 400, "bad", {}, None)
+    raised2 = False
+    try:
+        T._with_retries(bad_request, tries=3, base_backoff=0, sleep=naps.append)
+    except urllib.error.HTTPError:
+        raised2 = True
+    ok &= _check("non-transient fails fast (1 attempt)", raised2 and hard["n"] == 1)
+
     # no key -> no-op (offline guard preserved)
     os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("V21_OPUS_KEY", None)
     ok &= _check("iterative no-ops without a key",

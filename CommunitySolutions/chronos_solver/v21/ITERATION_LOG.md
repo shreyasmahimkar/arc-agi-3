@@ -6,6 +6,30 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-09 02:10Z] **R13 robustness — bounded retry-with-backoff for the Opus teacher's network call** —
+  HEALTH: runner HEALTHY/RUNNING — newest cron 213152Z (started 21:31Z/17:31 EDT) still LIVE, last log line
+  21:54 EDT (<10m ago) in an ft09 L3 600s BFS pass, no `cadence exit=` yet; `.cadence.lock` held by the live
+  run. Phase-2 gate 0/3 (ls20 5/7, ft09 2/6, vc33 4/7) — all RHAE 1.000, no regressions, no walls newly
+  cracked. NEW SIGNAL / ROOT CAUSE: in run 213152Z the Opus teacher AND opus-WM calls FAILED on ft09 with a
+  bare `urlopen error [Errno 8] nodename nor servname provided, or not known` (18:09 & 18:27 EDT) even though
+  the SAME endpoint answered for ls20 at 17:48 ("opus WM: no candidate plan won") — i.e. INTERMITTENT DNS on
+  the launchd network path, not a dead key. `OpusTeacher._call` did a single `urlopen` with no retry, so one
+  transient blip silently killed the teacher (R13, the user's top lever) on a wall it might crack, discarding
+  the near-miss (undoes R7's whole point). WHAT: factored `_call`'s request into an inner `_once()` and wrapped
+  it in new pure `_with_retries(fn, tries, base_backoff, sleep)` gated by `_is_transient(e)` — retry DNS/
+  connection/timeout/`URLError`/`OSError` + HTTP 429/5xx up to `V21_OPUS_RETRIES` (default 3) with capped
+  exponential backoff (`V21_OPUS_RETRY_BACKOFF`, default 1.5s→8s), but FAIL FAST on 4xx (bad key/request won't
+  self-heal). Network still lives only in `_once`, so the retry loop is fully offline-testable. No behavior
+  change when the network is healthy; teacher stays env-gated + verify + shortest-gated; corpus + offline guard
+  untouched. VERIFIED: py_compile (teacher/test_teacher/cadence_runner) green; test_teacher green with +11 new
+  checks (transient classification for URLError/timeout/503/429 vs 401/ValueError; retry recovers a 2-fail-then-
+  succeed blip; persistent transient exhausts→raises; non-transient fails in 1 attempt); test_offline +
+  test_blackboard green. EXPECTED NEXT RUN: with `V21_OPUS_TEACHER=1` + key, a transient DNS blip now logs
+  `[opus] transient network error (attempt k/3) … retrying` and RECOVERS instead of aborting — combined with
+  last cycle's `OPUS_TEACHER round N` observability, ft09/ls20/vc33 walls should show the teacher actually
+  reaching Opus on flaky-network passes. If the host NEVER resolves (persistent), it still exhausts to the
+  same clean WARNING — that's a Mac-side DNS/network fix (user), not a code bug.
+
 - [2026-07-08 22:05Z] **R13/R7 fix — restore OPUS_TEACHER observability in the iterative loop** —
   HEALTH: runner HEALTHY/RUNNING — last COMPLETE run 194224Z `cadence exit=0`; newest cron 213152Z
   (started 21:31Z) actively in ft09 L2 BFS (last log 21:58Z, <5m ago, within 600s budget); `.cadence.lock`
