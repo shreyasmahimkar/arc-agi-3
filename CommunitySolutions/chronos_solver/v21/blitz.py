@@ -129,6 +129,29 @@ def blitz_macros(start_game, target_level, macros, clone, play):
     return best
 
 
+def blitz_breadth_note(stats):
+    """Compact one-line summary of blitz Stage-0 SEARCH BREADTH for observability
+    (extends R17's local-lever note to blitz's internals). Pure; `stats` is the
+    dict `blitz_for_solver` populates (n_macros / n_simple / n_clicks / tier).
+
+    The BLITZ note today only reports the candidate plan's length on a miss — it
+    can't tell the next cycle *why* blitz whiffed. On a vc33-style click wall the
+    key question is whether any click TARGET was even enumerated (clicks=0 means
+    the scan/perception produced nothing to try, a different fix than clicks>0
+    that all failed). Returns e.g. 'macros=4 simple=5 clicks=0 tier=solve'.
+    """
+    s = stats or {}
+
+    def _n(k):
+        try:
+            return int(s.get(k, 0) or 0)
+        except Exception:
+            return 0
+
+    return "macros=%d simple=%d clicks=%d tier=%s" % (
+        _n("n_macros"), _n("n_simple"), _n("n_clicks"), str(s.get("tier", "?")))
+
+
 def merge_click_targets(scan_clicks, frame, use_perception,
                         perception_fn=None, limit=None):
     """Merge engine-scanned ACTION6 click targets with perception's connected-
@@ -190,7 +213,7 @@ def _completed(v):
 # Solver adapter (Mac-only). Kept out of module import so the offline test can
 # `import blitz` without arcengine / numpy present.
 # --------------------------------------------------------------------------
-def blitz_for_solver(solver, level_idx, repeat_K=200):
+def blitz_for_solver(solver, level_idx, repeat_K=200, stats=None):
     """Run blitz Stage-0 against a loaded v19 `BFSSolver` for `level_idx`.
 
     Builds the level's TRUE chained start state (reusing the solver's own
@@ -271,9 +294,20 @@ def blitz_for_solver(solver, level_idx, repeat_K=200):
             macros.append([(int(a), d) for a, d in plan])
         except Exception:
             continue
+    # Record search breadth for the caller's observability note (R17 extension):
+    # counts are known now, before any tier runs. `stats` is optional/None-safe.
+    if stats is not None:
+        stats["n_simple"] = len(simple)
+        stats["n_clicks"] = len(clicks)
+        stats["n_macros"] = len(macros)
+
     m = blitz_macros(game, level_idx, macros, _clone, _play)
     if m:
+        if stats is not None:
+            stats["tier"] = "macro"
         return m
 
+    if stats is not None:
+        stats["tier"] = "solve"
     return blitz_solve(game, level_idx, simple, clicks, _clone, _play,
                        repeat_K=repeat_K)

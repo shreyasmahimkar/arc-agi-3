@@ -245,9 +245,11 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # walls that BFS times out on. Fully guarded; any error falls through to
         # BFS. The candidate is still verified + shortest-gated below.
         if best is None and os.environ.get("V21_BLITZ", "1") not in ("0", "false", "False"):
+            _bstats = {}
             try:
                 bsol = blitz.blitz_for_solver(
-                    solver, lvl, repeat_K=int(os.environ.get("V21_BLITZ_K", "200")))
+                    solver, lvl, repeat_K=int(os.environ.get("V21_BLITZ_K", "200")),
+                    stats=_bstats)
             except Exception as e:
                 bsol = None
                 logger.debug("[%s L%d] blitz error: %s", gid, lvl, e)
@@ -256,7 +258,8 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 corpus[lvl] = bsol
                 logger.info("[%s L%d] BLITZ solved in %d actions", gid, lvl, len(bsol))
             else:
-                logger.info(_local_stage_note("BLITZ", gid, lvl, bsol))
+                logger.info(_local_stage_note(
+                    "BLITZ", gid, lvl, bsol, extra=blitz.blitz_breadth_note(_bstats)))
         # Epic C0 READ (Go-Explore seed replay): for still-UNSOLVED walls, replay
         # the blackboard's verified fragments (from sibling levels / prior runs)
         # and keep the first that VERIFIES on this wall. Cheap (replay, no search),
@@ -716,17 +719,23 @@ def _wm_step_records(solver, level_idx):
 # deepen next cycle. This pure helper builds the one-line INFO note each stage
 # emits when it ran but did NOT commit a verified win. Verified wins keep their
 # own "STAGE solved in N actions" log; this covers the (ran, no win) case.
-def _local_stage_note(stage, gid, lvl, candidate):
+def _local_stage_note(stage, gid, lvl, candidate, extra=None):
     """Return a one-line observability string for a LOCAL wall stage that fired
     but did not commit a verified win. Pure (no I/O); caller logs it.
     - candidate is None            -> stage ran, produced no plan
     - candidate present (unverified/failed the verify+shortest gate) -> report its length
+    - extra (optional): a compact ' | key=val ...' breadth suffix (e.g. blitz's
+      macros/simple/clicks/tier) so a miss reveals WHY, not just that it happened.
     """
     stage = str(stage)
     if not candidate:
-        return "[%s L%d] %s fired: no candidate" % (gid, lvl, stage)
-    return ("[%s L%d] %s fired: candidate len=%d failed verify/shortest gate"
-            % (gid, lvl, stage, len(candidate)))
+        base = "[%s L%d] %s fired: no candidate" % (gid, lvl, stage)
+    else:
+        base = ("[%s L%d] %s fired: candidate len=%d failed verify/shortest gate"
+                % (gid, lvl, stage, len(candidate)))
+    if extra:
+        base += " | " + str(extra)
+    return base
 
 
 # ---- Stage-3.5 runtime code-writer (BACKLOG #3) -------------------------------

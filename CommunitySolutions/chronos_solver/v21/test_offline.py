@@ -500,6 +500,27 @@ def main():
     ok &= _check("obs note: always a one-line str (no newline)",
                  isinstance(_n_none, str) and "\n" not in _n_none and "\n" not in _n_cand)
 
+    # 10b-5) BLITZ breadth telemetry (R18): extend R17's note to blitz's search
+    #        breadth. blitz.blitz_breadth_note formats the stats dict that
+    #        blitz_for_solver populates; _local_stage_note appends it after " | " so
+    #        a miss reveals macros/simple/clicks/tier — e.g. clicks=0 on a vc33
+    #        click wall means no target was even enumerated (a different fix than
+    #        clicks>0 that all failed). Kept pure/offline (blitz_for_solver is
+    #        Mac-only; the note formatter and the suffix wiring are not).
+    _bn = blitz.blitz_breadth_note({"n_macros": 4, "n_simple": 5, "n_clicks": 0, "tier": "solve"})
+    ok &= _check("blitz breadth note formats macros/simple/clicks/tier",
+                 _bn == "macros=4 simple=5 clicks=0 tier=solve")
+    ok &= _check("blitz breadth note is None/empty-safe (zeros + tier=?)",
+                 blitz.blitz_breadth_note(None) == "macros=0 simple=0 clicks=0 tier=?" and
+                 blitz.blitz_breadth_note({}) == "macros=0 simple=0 clicks=0 tier=?")
+    _n_extra = CR._local_stage_note("BLITZ", "vc33", 4, None, extra=_bn)
+    ok &= _check("obs note: extra breadth suffix appended after ' | ', still one line",
+                 _n_extra.endswith("| " + _bn) and "no candidate" in _n_extra and
+                 "\n" not in _n_extra)
+    ok &= _check("obs note: no extra -> unchanged from the 4-arg form (back-compat)",
+                 CR._local_stage_note("BLITZ", "vc33", 4, None) ==
+                 CR._local_stage_note("BLITZ", "vc33", 4, None, extra=None))
+
     # 10c) hypotheses: falsify drops mispredictors; discriminating action is the
     #      one whose predictions split the hypotheses the most.
     #   two hypotheses, only H_b predicts "X" for action 1 -> observing "X"

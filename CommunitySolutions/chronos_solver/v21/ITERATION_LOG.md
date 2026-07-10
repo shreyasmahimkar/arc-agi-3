@@ -733,3 +733,25 @@ builds on prior attempts instead of repeating them. Format:
   touched; no v19/v20; .env untracked. Expected effect: next Mac run's cron log shows a
   per-wall `STAGE fired: ...` line for each of the 4 local levers on ls20 L5–L6 / ft09
   L2–L5 / vc33 L4–L6, so the next cycle can see which lever gets closest and deepen it.
+
+- [2026-07-10 12:05Z] **R18 BLITZ breadth telemetry (extend R17 to the blitz lever's
+  internals).** With cloud Opus still billing-blocked (R16) and R17's per-stage note only
+  landing on the NEXT Mac run (run 085330Z started 08:53Z, before R17's 10:05Z commit —
+  so its walls show no *_fired:* lines yet), the walls rely wholly on the LOCAL levers.
+  BFS's own timeout line lives in v19 (off-limits), so the one local lever I can deepen
+  observability on in v21 is BLITZ. Problem: R17's BLITZ note reports only the candidate
+  plan length on a miss — it can't say WHY blitz whiffed. Fix (v21 only): pure
+  `blitz.blitz_breadth_note(stats)` formats the search breadth (`macros=N simple=N
+  clicks=N tier=macro|solve`); `blitz_for_solver` gained an optional None-safe `stats`
+  dict it populates before running either tier; `_local_stage_note` gained an optional
+  `extra=` suffix appended after ' | ' (4-arg calls unchanged — back-compat asserted);
+  cadence_runner's BLITZ miss-branch now passes the breadth note. Diagnostic value: on a
+  vc33 click wall `clicks=0` means NO target was even enumerated (a scan/perception fix)
+  vs `clicks>0` that all failed (a search-depth fix) — distinguishable for the first time.
+  Verified: py_compile (blitz + cadence_runner + test_offline) GREEN; test_offline +4 new
+  checks GREEN (145 PASS / 0 FAIL). Only blitz.py + cadence_runner.py + test_offline.py
+  touched; pure logging/telemetry — search logic, verify+shortest+exploit gates, corpus,
+  offline guard all untouched; no v19/v20; .env untracked. Expected effect: next Mac run's
+  BLITZ miss lines on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6 carry `| macros=.. simple=..
+  clicks=.. tier=..`, so the next cycle can see whether blitz has anything to try and
+  deepen the right thing (enumerate more click targets vs raise repeat_K/depth).

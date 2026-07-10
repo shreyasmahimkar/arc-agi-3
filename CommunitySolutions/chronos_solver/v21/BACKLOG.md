@@ -47,9 +47,14 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    the `else:` branch of all four local stages' verified-win `if` — a wall every local
    lever silently failed now logs a per-stage `STAGE fired: no candidate` /
    `STAGE fired: candidate len=N failed verify/shortest gate` line instead of a blank
-   gap. +4 offline `obs note:` checks (141 PASS). *Remaining (deepen the strongest):* read
-   the next Mac run's `*_fired:*` lines on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6, pick the
-   lever whose candidate gets closest to a win, and deepen it (e.g. raise
+   gap. +4 offline `obs note:` checks (141 PASS).
+   [R18 BLITZ BREADTH DONE 2026-07-10] `blitz.blitz_breadth_note` + `blitz_for_solver(stats=)`
+   + `_local_stage_note(extra=)` now append `| macros=N simple=N clicks=N tier=..` to the
+   BLITZ miss line — R17's note said only the candidate length; this says WHY (e.g.
+   `clicks=0` on a vc33 wall = no target enumerated vs `clicks>0` all-failed). Pure/offline;
+   +4 checks (145 PASS). *Remaining (deepen the strongest):* read the next Mac run's
+   `*_fired:*` lines (incl. the new BLITZ breadth) on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6,
+   pick the lever whose candidate gets closest to a win, and deepen it (e.g. raise
    `V21_PLANNER_STATES`/tune `V21_GOEXPLORE_BINS`, or seed the L4 end-state suffix-BFS).
 4. **ls20 L5–L6 (LADDER / Go-Explore).** Variant re-root + TTRL suffix-BFS from the L4 end state.
    [PARTIAL — offline Go-Explore seed CODED] `blitz.blitz_macros` replays solved sibling-level
