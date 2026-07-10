@@ -61,6 +61,13 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    run_cadence.sh). Root cause (cron 152556Z): the teacher was guessing x,y from source →
    round-1 first click a no-op on empty space. +6 offline checks. *Remaining:* a Mac cadence
    where the grounded round-1 plan shows non-zero delta past action index 0 on ft09 L2.
+   [WM-EXTRACTION FIX 2026-07-10] cron 011206Z/231705Z both logged `ft09 L2 opus WM exec
+   failed: invalid syntax (<world_model>, line 1)` — `brain/teacher._strip_module` only
+   stripped a ``` fence when the reply STARTED with it, so an Opus prose preamble / unclosed
+   fence reached compile(). Now extracts the first fenced block anywhere, tolerates an
+   unclosed fence, and drops a leading prose preamble (commit 86ba254, +11 offline strip:
+   checks). *Remaining:* a Mac cadence where ft09 L2 logs a built WorldModel + candidate_plans
+   attempt instead of `exec failed`.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in
    `graph_explore`. *Done when:* ≥1 of L4–L6 solved+verified.
    [TEACHER-GROUNDING CODED 2026-07-09] Same `V21_TEACHER_GROUND` grounding fixes vc33 L4's
