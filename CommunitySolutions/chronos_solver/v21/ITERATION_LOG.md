@@ -782,3 +782,30 @@ builds on prior attempts instead of repeating them. Format:
   enabled Mac, wiring `cadence_runner._make_evolve_probe` into `config_aware_cost_fn` lets
   a challenger that raises RHAE-1.0 wall solves to FEWER actions PROMOTE on `cost=` — the
   evolve log now prints `cost=` per challenger and `PROMOTE(frugal)` vs `PROMOTE(rhae)`.
+
+- [2026-07-10 16:05Z] **C1+ thread perception click-targets into the white-box
+  planners (deepens R18's "strongest lever" using the fresh 144827Z telemetry).**
+  Cloud Opus still billing-blocked (R16), so the wall work stays on LOCAL levers.
+  Run 144827Z — the FIRST run carrying R18's BLITZ-breadth telemetry — is diagnostic:
+  on the vc33 frontier wall (L4, re-rootable, whole game is ACTION6 clicks) BLITZ
+  enumerated `clicks=30` yet BRAIN_PLANNER + GOEXPLORE both fired 'no candidate' in
+  <1s (GOEXPLORE 0.2s). Root cause found in code: `_goexplore_for_solver` /
+  `_brain_planner_for_solver` build `avail=[a for a in _available_actions if a<=5]`
+  and call the planners WITHOUT `click_targets`, so on a click-only game they search
+  an empty/inert action set and return instantly — a plumbing gap, not a depth limit.
+  Fix (cadence_runner.py only): new pure helper `_scan_click_targets(solver, game,
+  f0)` mirrors `blitz.blitz_for_solver`'s enumeration (`solver._scan_actions` a==6
+  data dicts, optional B1 `merge_click_targets` perception centroids under the same
+  `V21_BRAIN_PERCEPTION` gate, None on non-click game / any error); both
+  `plan_in_model_macro` and `plan_in_model_goexplore` calls now pass
+  `click_targets=_scan_click_targets(...)`. Keyboard walls (ls20/ft09) unaffected
+  (6 not in avail -> None). Verified: py_compile (cadence_runner + test_offline)
+  GREEN; test_offline 153 PASS / 0 FAIL (+3 new `click-only wall` checks: go-explore
+  solves a click-only wall via click_targets, returns None without them, macro-BFS
+  solves too); test_teacher / test_blackboard / test_toddler GREEN (untouched).
+  Only cadence_runner.py + test_offline.py touched; verify+shortest+exploit gates,
+  corpus, offline guard all untouched; no v19/v20; .env untracked. Expected effect:
+  next Mac cadence with V21_BRAIN_PLANNER/V21_GOEXPLORE on — vc33 L4-L6 GOEXPLORE/
+  BRAIN_PLANNER now actually explore the 30 click targets instead of an empty set;
+  watch for a candidate (verify/shortest-gated) or, if still 'no candidate', a
+  non-instant runtime confirming the click search ran (then deepen bins/states).

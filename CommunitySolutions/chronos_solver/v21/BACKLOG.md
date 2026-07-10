@@ -52,7 +52,16 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    + `_local_stage_note(extra=)` now append `| macros=N simple=N clicks=N tier=..` to the
    BLITZ miss line — R17's note said only the candidate length; this says WHY (e.g.
    `clicks=0` on a vc33 wall = no target enumerated vs `clicks>0` all-failed). Pure/offline;
-   +4 checks (145 PASS). *Remaining (deepen the strongest):* read the next Mac run's
+   +4 checks (145 PASS).
+   [C1+ CLICK-TARGET PLUMBING DONE 2026-07-10] Run 144827Z (first with R18 breadth)
+   was diagnostic: vc33 L4 had BLITZ `clicks=30` yet BRAIN_PLANNER + GOEXPLORE fired
+   'no candidate' in <1s. Root cause: `_goexplore_for_solver`/`_brain_planner_for_solver`
+   passed NO `click_targets`, so both white-box planners searched an inert simple-only
+   action set on the click-driven vc33 walls. New pure `_scan_click_targets` helper
+   (mirrors `blitz_for_solver`: `_scan_actions` a==6 + optional B1 centroids under
+   `V21_BRAIN_PERCEPTION`) now feeds both `plan_in_model_macro`/`_goexplore`. +3
+   offline `click-only wall` checks (153 PASS); ls20/ft09 keyboard walls unaffected.
+   *Remaining (deepen the strongest):* read the next Mac run's
    `*_fired:*` lines (incl. the new BLITZ breadth) on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6,
    pick the lever whose candidate gets closest to a win, and deepen it (e.g. raise
    `V21_PLANNER_STATES`/tune `V21_GOEXPLORE_BINS`, or seed the L4 end-state suffix-BFS).

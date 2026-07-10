@@ -758,6 +758,39 @@ def _get_runtime_llm():
     return _RUNTIME_LLM
 
 
+def _scan_click_targets(solver, game, f0):
+    """Effective ACTION6 click-`data` targets for the white-box planners (C1+).
+
+    Mirrors `blitz.blitz_for_solver`'s enumeration so Go-Explore / macro-BFS search
+    the SAME clicks blitz does: the solver's own `_scan_actions` (dedup'd by frame
+    effect), optionally augmented with B1 perception connected-component centroids
+    under `V21_BRAIN_PERCEPTION`. Without this the planners only try simple actions
+    1-5 — inert on click-driven games (vc33 L4-L6), which is why run 144827Z showed
+    GOEXPLORE/BRAIN_PLANNER 'no candidate' in <1s there while BLITZ had 30 targets.
+    Returns a list of `data` dicts, or None (no clicks / not a click game / error).
+    Pure w.r.t. persistent state — probes only forks / the passed start game."""
+    import numpy as np
+    raw_avail = list(getattr(game, "_available_actions", []) or [])
+    if 6 not in raw_avail:
+        return None
+    cts = []
+    try:
+        bg = int(np.bincount(np.asarray(f0).flatten(), minlength=16).argmax())
+        for a, d in solver._scan_actions(game, f0, bg):
+            if a == 6 and d is not None:
+                cts.append(d)
+    except Exception:
+        cts = []
+    if os.environ.get("V21_BRAIN_PERCEPTION", "0") \
+            not in ("", "0", "false", "False", "no", "off"):
+        try:
+            from blitz import merge_click_targets
+            cts = merge_click_targets(cts, f0, True)
+        except Exception:
+            pass  # scan-only clicks on any error
+    return cts or None
+
+
 def _brain_planner_for_solver(solver, level_idx):
     """Stage-3.4: Go-Explore/macro-BFS (brain B3) over the engine as the trusted
     white-box model, from this level's re-rooted start. State = {'g':game,'f':frame}
@@ -800,11 +833,15 @@ def _brain_planner_for_solver(solver, level_idx):
             fm[:2] = 0; fm[-2:] = 0
         return hashlib.md5(fm.tobytes()).hexdigest()[:16]
 
+    # C1+: feed click-driven walls (vc33) the same effective ACTION6 targets blitz
+    # uses; macro-BFS with only simple actions 1-5 is inert on click games.
+    click_targets = _scan_click_targets(solver, game, f0)
     start = {"g": game, "f": np.asarray(f0)}
     budget = int(os.environ.get("V21_PLANNER_STATES", "200000"))
     macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))
     return planner.plan_in_model_macro(start, avail, _clone, _play, _hash,
-                                       goal=level_idx + 1, max_states=budget, max_macro=macro)
+                                       goal=level_idx + 1, max_states=budget,
+                                       max_macro=macro, click_targets=click_targets)
 
 
 def _goexplore_for_solver(solver, level_idx, bb=None):
@@ -868,13 +905,19 @@ def _goexplore_for_solver(solver, level_idx, bb=None):
         except Exception:
             seeds = None
 
+    # C1+: on CLICK-driven walls (vc33 L4-L6) simple actions 1-5 are inert, so
+    # Go-Explore with only those explores an empty set and returns instantly with no
+    # candidate (run 144827Z: vc33 L4 GOEXPLORE no-candidate 0.2s while BLITZ had 30
+    # click targets). Hand it the same effective ACTION6 targets blitz enumerates so
+    # it can actually search click dynamics; None on keyboard walls (ls20/ft09).
+    click_targets = _scan_click_targets(solver, game, f0)
     start = {"g": game, "f": np.asarray(f0)}
     budget = int(os.environ.get("V21_PLANNER_STATES", "200000"))
     macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))
     return planner.plan_in_model_goexplore(start, avail, _clone, _play, _cell,
                                            goal=level_idx + 1, max_states=budget,
-                                           max_macro=macro, action_order=a_order,
-                                           seed_plans=seeds)
+                                           max_macro=macro, click_targets=click_targets,
+                                           action_order=a_order, seed_plans=seeds)
 
 
 def _wm_candidate_plans_with_safety(wm, obs, maxlen, gid="?", level_idx=-1):

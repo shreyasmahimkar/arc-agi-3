@@ -662,6 +662,50 @@ def main():
                                          goal=1, max_states=2000, max_macro=16)
     ok &= _check("plan_in_model_goexplore returns None when goal unreachable",
                  gplan_n is None)
+    #   C1+ click-driven wall (vc33 L4-L6 lever): goal reachable ONLY via ACTION6
+    #   click targets, with NO simple actions. Proves click_targets are threaded
+    #   through plan_in_model_goexplore into ladder.go_explore so click-only games
+    #   can be searched — before this fix the planners explored an empty action set
+    #   on vc33 (run 144827Z: GOEXPLORE 'no candidate' 0.2s while BLITZ had 30).
+    def _mk_click_wall():
+        def clone(s): return dict(s)
+        def play(s, step):
+            a, d = step
+            if a == 6 and d is not None:
+                s["hits"] = s.get("hits", 0) + 1
+            return 1 if s.get("hits", 0) >= 3 else 0
+        def cell(s): return s.get("hits", 0)
+        return clone, play, cell
+    _clw, _plw, _celw = _mk_click_wall()
+    cwin = PL.plan_in_model_goexplore({"hits": 0}, [], _clw, _plw, _celw, goal=1,
+                                      max_states=5000, max_macro=8,
+                                      click_targets=[{"x": 1, "y": 1}])
+    _cs = {"hits": 0}; _cwlc = 0
+    for st in (cwin or []): _cwlc = _plw(_cs, st)
+    ok &= _check("plan_in_model_goexplore solves a click-only wall via click_targets",
+                 bool(cwin) and _cwlc >= 1)
+    #   same wall with NO click_targets is unreachable (only inert simple set) -> None
+    cnone = PL.plan_in_model_goexplore({"hits": 0}, [], _clw, _plw, _celw, goal=1,
+                                       max_states=5000, max_macro=8)
+    ok &= _check("plan_in_model_goexplore returns None on click wall w/o click_targets",
+                 cnone is None)
+    #   macro-BFS (brain_planner lever) also threads click_targets on click walls
+    def _mk_click_wall_h():
+        def clone(s): return dict(s)
+        def play(s, step):
+            a, d = step
+            if a == 6 and d is not None: s["hits"] = s.get("hits", 0) + 1
+            return 1 if s.get("hits", 0) >= 2 else 0
+        def hfn(s): return s.get("hits", 0)
+        return clone, play, hfn
+    _clh, _plh, _hfh = _mk_click_wall_h()
+    mwin = PL.plan_in_model_macro({"hits": 0}, [], _clh, _plh, _hfh, goal=1,
+                                  max_states=5000, max_macro=8,
+                                  click_targets=[{"x": 2, "y": 2}])
+    _ms = {"hits": 0}; _mwlc = 0
+    for st in (mwin or []): _mwlc = _plh(_ms, st)
+    ok &= _check("plan_in_model_macro solves a click-only wall via click_targets",
+                 bool(mwin) and _mwlc >= 1)
     #   executor: model predicts frames "1","2","3"; real diverges at step 2
     #   (returns "2","BAD") -> mismatch_at == 1, not won.
     seqp = iter(["1", "2", "3"])
