@@ -34,6 +34,7 @@ PROMPT = ("Game source ({gid}.py):\n```python\n{src}\n```\n\n"
           "TARGET: complete LEVEL {level} (i.e. reach levels_completed >= {goal}). The "
           "levels are sequential; assume levels 0..{prev} are already solved and you START "
           "at the level {level} entry state. Available discrete actions: {avail}. "
+          "{state}"
           "Notes from failed local attempts: {notes}\n\n"
           "Reason through the source privately, then output ONLY the JSON plan (shortest).")
 
@@ -138,17 +139,31 @@ class OpusTeacher:
         backoff = float(os.environ.get("V21_OPUS_RETRY_BACKOFF", "1.5"))
         return _with_retries(_once, tries, backoff)
 
-    def solve_wall(self, gid, source_code, level_idx, avail, notes=""):
+    def solve_wall(self, gid, source_code, level_idx, avail, notes="", state=""):
         """Ask Opus for a candidate plan. Returns list[(action_id, data)] or None.
-        UNVERIFIED — caller must verify_solution + shortest-gate + refuse exploits."""
+        UNVERIFIED — caller must verify_solution + shortest-gate + refuse exploits.
+
+        `state` (R14 grounding): a symbolic digest of the REAL level-start frame +
+        a per-action effect table (each action pressed once -> changed / levels_
+        completed), captured from the live engine by the caller. Without it Opus
+        reads the source (rules) but never sees the board it's playing on — it
+        plans blind (this run: ls20 L5 plans changed 86-90 cells but never crossed
+        the goal; vc33 L4 round-1 first action was a no-op). Empty -> unchanged
+        (identical to the old prompt), so the upgrade is fully additive."""
         if not self.available():
             return None
         src = source_code or ""
         if len(src) > 60000:                    # keep the request bounded
             src = src[:60000] + "\n# ...truncated..."
+        state_block = ""
+        if state and str(state).strip():
+            state_block = ("CURRENT OBSERVED STATE (ground truth from the live engine at "
+                           "the level entry — TRUST THIS over your mental simulation of the "
+                           "source; the action->outcome table shows what each action ACTUALLY "
+                           "does from here):\n" + str(state).strip()[:2400] + "\n\n")
         user = PROMPT.format(gid=gid, src=src, level=level_idx, goal=level_idx + 1,
                              prev=max(level_idx - 1, 0), avail=list(avail),
-                             notes=(notes or "none")[:1500])
+                             state=state_block, notes=(notes or "none")[:1500])
         try:
             raw = self._call(SYSTEM, user)
         except Exception as e:
@@ -174,7 +189,7 @@ class OpusTeacher:
         return _strip_module(raw)
 
     def solve_wall_iterative(self, gid, source_code, level_idx, avail,
-                             try_plan, max_rounds=None, notes=""):
+                             try_plan, max_rounds=None, notes="", state=""):
         """R7 teach-with-feedback: propose a plan, let the caller EXECUTE+VERIFY it
         via try_plan(plan) -> (solved: bool, feedback: str); on failure, fold the
         engine's failure report back into the next prompt as a negative-constraint
@@ -195,7 +210,12 @@ class OpusTeacher:
                 max_rounds = 2
         acc_notes = notes or ""
         for rnd in range(max(1, max_rounds)):
-            plan = self.solve_wall(gid, source_code, level_idx, avail, notes=acc_notes)
+            # `state` (the live-engine ground truth) is CONSTANT across rounds — each
+            # round re-roots to the same level-start — while `acc_notes` grows with the
+            # per-round failure gradient. So Opus always sees the real board AND the
+            # accumulating "what didn't work" feedback.
+            plan = self.solve_wall(gid, source_code, level_idx, avail,
+                                   notes=acc_notes, state=state)
             if not plan:
                 return None
             try:

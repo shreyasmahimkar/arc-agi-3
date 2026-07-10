@@ -6,6 +6,27 @@ builds on prior attempts instead of repeating them. Format:
 
 ---
 
+- [2026-07-09 19:4xZ] **R14 Opus-teacher FULL GROUNDING (frame + per-action effects)** —
+  the core teacher blocker was that Opus reads the white-box SOURCE (rules) but never
+  saw the actual board: run 192513Z ls20 L5 plans executed fully and changed 86-90
+  cells yet never crossed the goal, and vc33/ft09 round-1 first actions were no-ops.
+  Fix: before planning, probe each available action ONCE from the re-rooted level start
+  and build a symbolic scene digest (objects/centroids via brain.summarize.digest) PLUS
+  a per-action effect table `{action, changed, levels_completed}`, injected into the
+  teacher prompt as a "CURRENT OBSERVED STATE (trust this over your mental simulation)"
+  block. New pure helpers in cadence_runner: `_teacher_ground2_enabled`,
+  `_teacher_action_effects(solver, lvl)` (pure fork, engine imports lazy), and
+  `_teacher_state_digest` -> (digest, n_probed). teacher.solve_wall / solve_wall_iterative
+  gained an additive `state=""` kwarg (empty -> byte-identical to the old prompt; threaded
+  into EVERY round as constant ground truth while notes carry the growing failure
+  gradient). Env `V21_TEACHER_GROUND2` (default OFF in code; run_cadence.sh sets =1).
+  Verified: 5 new teacher tests (state reaches Opus verbatim, flagged as ground truth,
+  source still ships, no-state == old prompt, threaded into every round) + all 4 suites
+  green (test_offline/teacher/toddler/blackboard). Verify+shortest+exploit gates unchanged
+  so a bad digest can't corrupt the corpus. Expected next-run effect: teacher plans align
+  with the real board + win condition — first-action no-ops disappear on vc33/ft09 and
+  ls20 L5 plans aim at the actual goal instead of churning cells.
+
 - [2026-07-09 18:2xZ] **R8/B1 Opus-teacher click-target GROUNDING** — the Opus teacher
   now receives the level-START frame's valid ACTION6 click targets (B1 perception
   component centroids) in its FIRST-round prompt, so its clicks land on real objects
@@ -535,3 +556,36 @@ builds on prior attempts instead of repeating them. Format:
   untouched; no v19/v20. Expected effect: next Mac cadence, OPUS_TEACHER fires ONLY on the
   re-rootable frontier wall per game (ls20 L5 / ft09 L2 / vc33 L4), not the 6 unreachable walls
   that logged "could not re-root" in run 073852Z — the whole Opus budget lands where it can verify.
+
+- [2026-07-09 20:05Z] **P1 walls — OPUS_WM safety-net fallback (structural fix for the
+  recurring candidate_plans() crash).** Root cause across runs: `_opus_world_model_for_solver`
+  returned None the instant the LLM-authored `wm.candidate_plans()` raised, discarding the whole
+  (expensive) Opus world-model call on EVERY frontier wall — ls20 L5 `name 'str' is not defined`
+  (152556Z) then `list indices must be integers or slices, not tuple` (192513Z), ft09 L2 U+2014
+  exec-parse (152556Z). Sandbox-builtin patches are whack-a-mole; the LLM keeps finding new crash
+  modes. Fix: new `cadence_runner._wm_candidate_plans_with_safety(wm, obs, maxlen, gid, level)`
+  mirrors `RuntimeCoder.solve_level`'s net — on crash/empty it merges `runtime_coder._safety_net_plans`
+  (LLM-independent trivial wins: depth-1 singles, repeat-one-action lines, click-repeat) so the stage
+  still replays real candidates on the fork. Verified: py_compile (cadence_runner/test_offline/
+  runtime_coder) + test_offline GREEN (130 PASS incl. 3 new 5a3 checks: crash->safety plans, plans
+  non-empty, good-plan kept+augmented). Corpus + offline guard + verify/shortest-gate untouched; no
+  v19/v20. Expected effect: next Mac cadence, ls20 L5 / ft09 L2 / vc33 L4 OPUS_WM no longer logs
+  "no candidate plan won" off a crash — it replays the safety net and can register levels_completed
+  past the frontier if any trivial win cracks it.
+
+- [2026-07-09 22:00Z] **P1 walls — OPUS_WM exec-failure safety-net fallback (completes the
+  20:05Z structural fix).** cron 212257Z surfaced a NEW crash class the prior net missed:
+  ft09 L2 `opus WM exec failed: unterminated string literal (detected at line 3)` — the
+  LLM-authored WM MODULE fails to `_exec_world_model` OUTRIGHT, before `candidate_plans()`
+  is ever reachable. `_wm_candidate_plans_with_safety` (20:05Z) only protects a *built*
+  model, so on an exec crash `_opus_world_model_for_solver` still `return None`-d and threw
+  away the whole (expensive) fork opportunity. Fix: on `wm is None`, log + fall back to
+  `runtime_coder._safety_net_plans(obs, maxlen)` (LLM-independent depth-1 singles / repeat-one
+  / click-repeat) and continue into the SAME verify+shortest-gated replay loop, instead of
+  bailing. Verified: py_compile (cadence_runner/test_offline/runtime_coder) + test_offline
+  GREEN (131 PASS, +1 new 5a4 check: exec-failure net yields non-empty fork-replayable plans
+  with no WM) + test_teacher + test_blackboard green. Corpus + offline guard + verify/shortest-
+  gate + R2.7 exploit-refusal untouched; no v19/v20. Expected effect: next Mac cadence, ft09 L2
+  (and any syntax-broken Opus WM) no longer logs a bare "exec failed" dead-end — it replays the
+  safety net on the fork and can register levels_completed past the frontier if a trivial win
+  cracks it.

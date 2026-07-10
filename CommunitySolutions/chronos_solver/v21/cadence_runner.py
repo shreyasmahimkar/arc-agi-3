@@ -839,6 +839,31 @@ def _goexplore_for_solver(solver, level_idx, bb=None):
                                            seed_plans=seeds)
 
 
+def _wm_candidate_plans_with_safety(wm, obs, maxlen, gid="?", level_idx=-1):
+    """Enumerate a world-model's candidate plans, but NEVER let a crashing or empty
+    LLM-authored `candidate_plans()` discard the whole (expensive) Opus-WM call.
+
+    History: on every frontier wall the model's own candidate_plans() kept raising a
+    *new* runtime bug — "name 'str' is not defined" (ls20 L5, cron 152556Z),
+    "list indices must be integers or slices, not tuple" (ls20 L5, cron 192513Z),
+    U+2014 exec-parse (ft09 L2). Patching the sandbox builtins one crash at a time is
+    whack-a-mole. The structural fix (mirrors RuntimeCoder.solve_level's safety net):
+    always merge the LLM-independent trivial-win plans so the stage still replays real
+    candidates against the fork even when the generated enumerator is broken."""
+    import runtime_coder as rc
+    try:
+        plans = list(wm.candidate_plans(maxlen) or [])
+    except Exception as e:
+        logger.info("[%s L%d] opus WM candidate_plans crashed: %s — using safety-net plans",
+                    gid, level_idx, e)
+        plans = []
+    try:
+        plans = plans + rc._safety_net_plans(obs, maxlen)
+    except Exception:
+        pass
+    return plans
+
+
 def _opus_world_model_for_solver(solver, level_idx, gid):
     """Stage-3.7: ask Opus to WRITE an executable WorldModel .py from the white-box
     source (B2 — the world model, not just a plan). Sandbox-exec it, enumerate its
@@ -882,13 +907,23 @@ def _opus_world_model_for_solver(solver, level_idx, gid):
     obs = {"level": level_idx, "available_actions": avail,
            "frame": f0.tolist() if hasattr(f0, "tolist") else f0}
     wm, err = rc._exec_world_model(code, obs)
+    maxlen = int(os.environ.get("V21_OPUS_WM_MAXLEN", "400"))
     if wm is None:
-        logger.info("[%s L%d] opus WM exec failed: %s", gid, level_idx, err)
-        return None
-    try:
-        plans = wm.candidate_plans(int(os.environ.get("V21_OPUS_WM_MAXLEN", "400"))) or []
-    except Exception as e:
-        logger.info("[%s L%d] opus WM candidate_plans crashed: %s", gid, level_idx, e)
+        # The LLM-authored WM module failed to EXEC at all — a syntax/parse crash
+        # BEFORE candidate_plans() can even run (ft09 L2 'unterminated string literal',
+        # cron 212257Z; ls20 L5 U+2014 exec-parse earlier). The candidate_plans safety
+        # net (below) only protects a *built* model, so previously the whole fork
+        # opportunity was discarded on an exec crash. Structural fix: still replay the
+        # LLM-independent safety-net plans on the fork so a trivial win can crack the wall.
+        logger.info("[%s L%d] opus WM exec failed: %s — using safety-net plans",
+                    gid, level_idx, err)
+        try:
+            plans = rc._safety_net_plans(obs, maxlen)
+        except Exception:
+            plans = []
+    else:
+        plans = _wm_candidate_plans_with_safety(wm, obs, maxlen, gid, level_idx)
+    if not plans:
         return None
 
     def _clone(g):
@@ -919,6 +954,70 @@ def _opus_world_model_for_solver(solver, level_idx, gid):
 def _teacher_ground_enabled(env=None):
     env = os.environ if env is None else env
     return env.get("V21_TEACHER_GROUND", "0") in ("1", "true", "True")
+
+
+def _teacher_ground2_enabled(env=None):
+    """R14 full grounding: give the Opus teacher the REAL level-start frame (symbolic
+    scene digest) + a per-action effect table. Independent of the older click-only
+    grounding (V21_TEACHER_GROUND). Default OFF in code; run_cadence.sh turns it on."""
+    env = os.environ if env is None else env
+    return env.get("V21_TEACHER_GROUND2", "0") in ("1", "true", "True")
+
+
+def _teacher_action_effects(solver, level_idx):
+    """Probe each available discrete action ONCE from the re-rooted level start and
+    return (start_frame, transitions) where transitions is a list of
+    {action, changed, levels_completed} — the per-action effect table that tells the
+    teacher which actions actually DO something before it commits to a plan (this run:
+    vc33 L4 round-1's first action was a no-op — Opus couldn't know that up front).
+    Pure fork (never mutates the real run); engine imports lazy (Mac-only). Returns
+    (None, []) on any failure so the teacher path is never broken by grounding."""
+    try:
+        import numpy as np
+        from combined_agent import ActionInput, GameAction
+        res = solver._make_start_state(level_idx)
+        if res is None:
+            return None, []
+        game, f0 = res
+        f0 = np.asarray(f0)
+        avail = [a for a in (getattr(game, "_available_actions", []) or [])
+                 if 1 <= a <= 5] or [1, 2, 3, 4, 5]
+        trans = []
+        for a in avail:
+            try:
+                g = solver._restore(solver._snap(game))
+                r = g.perform_action(ActionInput(id=GameAction.from_id(a)), raw=True)
+                nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+                changed = bool(nf is not None and not np.array_equal(nf, f0))
+                lc = int(getattr(r, "levels_completed", 0) or 0)
+                trans.append({"action": int(a), "changed": changed,
+                              "levels_completed": lc})
+            except Exception:
+                continue
+        return f0, trans
+    except Exception:
+        return None, []
+
+
+def _teacher_state_digest(solver, level_idx):
+    """Build the GROUNDED current-state block for the Opus teacher: the real level-start
+    frame turned into a symbolic scene (objects/centroids/click targets via
+    brain.summarize.digest) PLUS the per-action effect table. This is the fix for the
+    teacher 'reading the rulebook but playing blindfolded' — it now sees the actual
+    board and what each action does from here, not just the source. Pure; returns "" on
+    any failure so the teacher path degrades to the ungrounded prompt."""
+    try:
+        f0, trans = _teacher_action_effects(solver, level_idx)
+        if f0 is None:
+            return "", 0
+        from brain.summarize import digest
+        obs = {"level": level_idx,
+               "available_actions": [t["action"] for t in trans] or [1, 2, 3, 4, 5],
+               "frame": f0.tolist() if hasattr(f0, "tolist") else f0,
+               "transitions": trans}
+        return (digest(obs) or ""), len(trans)
+    except Exception:
+        return "", 0
 
 
 def _teacher_click_note(frame, limit=24, max_chars=500):
@@ -1027,15 +1126,29 @@ def _opus_teacher_for_solver(solver, level_idx, gid):
         _counterex_record(_cex_bb, level_idx, p)
         return False, fb
 
+    # R14 GROUNDING: hand Opus the REAL level-start frame (symbolic scene digest) + a
+    # per-action effect table, so it plans over the actual board instead of blind over
+    # the source. This is the fix for the core teacher failure mode (this run: ls20 L5
+    # plans changed 86-90 cells but never crossed the goal; vc33 L4 first action a
+    # no-op). Env V21_TEACHER_GROUND2 (default OFF); pure + degrades to the old prompt
+    # on any failure; the plan is still verify + shortest + exploit-gated so a bad
+    # digest can never corrupt the corpus.
+    state = ""
+    if _teacher_ground2_enabled():
+        state, n_probed = _teacher_state_digest(solver, level_idx)
+        if state:
+            logger.info("[%s L%d] OPUS_TEACHER grounded: %d-char state digest, %d actions probed",
+                        gid, level_idx, len(state), n_probed)
+
     try:
         rounds = int(os.environ.get("V21_OPUS_ROUNDS", "2"))
     except Exception:
         rounds = 2
     if rounds > 1 and hasattr(teacher, "solve_wall_iterative"):
         plan = teacher.solve_wall_iterative(
-            gid, src, level_idx, avail, _try_plan, max_rounds=rounds, notes=notes)
+            gid, src, level_idx, avail, _try_plan, max_rounds=rounds, notes=notes, state=state)
     else:
-        plan = teacher.solve_wall(gid, src, level_idx, avail, notes=notes)
+        plan = teacher.solve_wall(gid, src, level_idx, avail, notes=notes, state=state)
     if not plan:
         return None
     # R2.7: never accept the null-coordinate ACTION6 exploit

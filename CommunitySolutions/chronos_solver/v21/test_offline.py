@@ -95,6 +95,39 @@ def main():
     _wo, _eo = rc._exec_world_model(_open_code, {})
     ok &= _check("runtime_coder: open() still blocked in WM sandbox", _wo is None)
 
+    # 5a3) OPUS_WM safety-net fallback: a crashing (or empty) LLM candidate_plans()
+    #      must NOT discard the whole Opus-WM call. Every frontier wall so far lost
+    #      its entire WM to a new candidate_plans() runtime bug (str/tuple/U+2014);
+    #      cadence_runner._wm_candidate_plans_with_safety now merges the LLM-independent
+    #      safety net so the stage still replays real candidates on the fork.
+    import cadence_runner as cr
+    class _CrashWM:
+        def candidate_plans(self, max_len):
+            raise TypeError("list indices must be integers or slices, not tuple")
+    _obs53 = {"available_actions": [1, 2, 6], "frame": [[0, 0], [0, 0]]}
+    _fb = cr._wm_candidate_plans_with_safety(_CrashWM(), _obs53, 200, "ls20", 5)
+    ok &= _check("OPUS_WM: crashing candidate_plans still yields safety-net plans",
+                 isinstance(_fb, list) and len(_fb) > 0)
+    ok &= _check("OPUS_WM: safety-net fallback plans are non-empty action seqs",
+                 all(isinstance(p, list) and p for p in _fb))
+    class _GoodWM:
+        def candidate_plans(self, max_len):
+            return [[(6, None)]]
+    _fb2 = cr._wm_candidate_plans_with_safety(_GoodWM(), _obs53, 200, "ft09", 2)
+    ok &= _check("OPUS_WM: good candidate_plans kept AND augmented with safety net",
+                 [(6, None)] in _fb2 and len(_fb2) > 1)
+
+    # 5a4) OPUS_WM exec-failure fallback: when the LLM-authored WM MODULE fails to
+    #      exec outright (syntax/parse crash before candidate_plans can run — ft09 L2
+    #      'unterminated string literal', cron 212257Z), the safety net must STILL
+    #      produce fork-replayable plans. Regression guard: rc._safety_net_plans (the
+    #      exec-failure branch in _opus_world_model_for_solver) yields non-empty plans
+    #      from just an obs (no world model at all).
+    _sn = rc._safety_net_plans(_obs53, 200)
+    ok &= _check("OPUS_WM: exec-failure safety net yields fork-replayable plans (no WM)",
+                 isinstance(_sn, list) and len(_sn) > 0
+                 and all(isinstance(p, list) and p for p in _sn))
+
     # 5a2) Perception-first coder digest (BACKLOG R6+R8): brain.summarize.digest
     #      replaces the raw-grid `{obs}` block behind V21_CODER_DIGEST. Must name
     #      each component, losslessly recall the action->outcome table, stay

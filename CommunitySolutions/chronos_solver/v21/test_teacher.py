@@ -137,6 +137,34 @@ def main():
         raised2 = True
     ok &= _check("non-transient fails fast (1 attempt)", raised2 and hard["n"] == 1)
 
+    # --- R14 grounding: the STATE block reaches Opus verbatim, additively -----------
+    os.environ["ANTHROPIC_API_KEY"] = "sk-test"
+    STATE = "scene: dims=64x64 background=4 n_objects=3\naction->outcome: a1 changed=True"
+    # solve_wall: when state is passed, the user prompt carries the grounded block AND
+    # the "trust this over your mental simulation" instruction; the source still ships.
+    seen = {}
+    teaG = T.OpusTeacher()
+    teaG._call = lambda s, u: (seen.__setitem__("u", u), '{"plan": [[1, null]]}')[1]
+    teaG.solve_wall("ls20", "SRC_CODE", 5, [1, 2, 3], notes="n", state=STATE)
+    ok &= _check("grounded prompt carries the state digest", STATE in seen["u"])
+    ok &= _check("grounded prompt flags it as ground truth",
+                 "CURRENT OBSERVED STATE" in seen["u"] and "TRUST THIS" in seen["u"])
+    ok &= _check("grounded prompt still ships the source", "SRC_CODE" in seen["u"])
+    # empty/absent state -> byte-identical to the old ungrounded prompt (additive)
+    seen2 = {}
+    teaG._call = lambda s, u: (seen2.__setitem__("u", u), '{"plan": [[1, null]]}')[1]
+    teaG.solve_wall("ls20", "SRC_CODE", 5, [1, 2, 3], notes="n")   # no state
+    ok &= _check("no-state prompt omits the grounded block",
+                 "CURRENT OBSERVED STATE" not in seen2["u"])
+    # iterative threads state into EVERY round (constant ground truth across rounds)
+    rounds_seen = []
+    teaI = T.OpusTeacher()
+    teaI._call = lambda s, u: (rounds_seen.append(u), '{"plan": [[9, null]]}')[1]
+    teaI.solve_wall_iterative("ls20", "SRC", 5, [1], lambda p: (False, "no"),
+                              max_rounds=2, notes="n", state=STATE)
+    ok &= _check("iterative threads state into every round",
+                 len(rounds_seen) == 2 and all(STATE in u for u in rounds_seen))
+
     # no key -> no-op (offline guard preserved)
     os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("V21_OPUS_KEY", None)
     ok &= _check("iterative no-ops without a key",
