@@ -255,6 +255,8 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = bsol, len(bsol), True
                 corpus[lvl] = bsol
                 logger.info("[%s L%d] BLITZ solved in %d actions", gid, lvl, len(bsol))
+            else:
+                logger.info(_local_stage_note("BLITZ", gid, lvl, bsol))
         # Epic C0 READ (Go-Explore seed replay): for still-UNSOLVED walls, replay
         # the blackboard's verified fragments (from sibling levels / prior runs)
         # and keep the first that VERIFIES on this wall. Cheap (replay, no search),
@@ -310,6 +312,8 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = psol, len(psol), True
                 corpus[lvl] = psol
                 logger.info("[%s L%d] BRAIN_PLANNER solved in %d actions", gid, lvl, len(psol))
+            else:
+                logger.info(_local_stage_note("BRAIN_PLANNER", gid, lvl, psol))
         # Stage-3.45 GO-EXPLORE (Epic C1): cell-archive Go-Explore over the engine —
         # dedups on a COARSE downsampled-frame cell instead of the exact frame hash,
         # so ls20 L5's corridors merge into a small return-to archive rather than a
@@ -327,6 +331,8 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                 best, best_len, improved = gsol, len(gsol), True
                 corpus[lvl] = gsol
                 logger.info("[%s L%d] GOEXPLORE solved in %d actions", gid, lvl, len(gsol))
+            else:
+                logger.info(_local_stage_note("GOEXPLORE", gid, lvl, gsol))
         # Neural toddler harvest (Epic C3 / R11): on an UNSOLVED wall, probe each
         # action ONCE from the re-rooted start and log (frame, action -> changed/won)
         # samples for the StochasticGoose-style frame-change CNN. Trained later in
@@ -356,6 +362,8 @@ def solve_game(gid, bfs_timeout, BFSSolver):
                     corpus[lvl] = csol
                     logger.info("[%s L%d] RUNTIME_CODER solved in %d actions",
                                 gid, lvl, len(csol))
+                else:
+                    logger.info(_local_stage_note("RUNTIME_CODER", gid, lvl, csol))
         # Stage-3.6 OPUS TEACHER (R13): the final teacher — when everything local
         # fails a wall, ask cloud Opus to read the WHITE-BOX source and construct the
         # winning sequence. Its plan is UNVERIFIED → still verify + shortest-gate +
@@ -698,6 +706,27 @@ def _wm_step_records(solver, level_idx):
         except Exception:
             continue
     return recs
+
+
+# ---- LOCAL-lever observability (BACKLOG P1 R16 next-cycle note) ---------------
+# The local wall-cracking stages (blitz / brain_planner / go-explore /
+# runtime_coder) log ONLY on success today, so a wall that every local lever
+# silently failed shows nothing between the BFS timeout and the "UNSOLVED" line —
+# we cannot tell which levers actually FIRED or which produced a near-miss to
+# deepen next cycle. This pure helper builds the one-line INFO note each stage
+# emits when it ran but did NOT commit a verified win. Verified wins keep their
+# own "STAGE solved in N actions" log; this covers the (ran, no win) case.
+def _local_stage_note(stage, gid, lvl, candidate):
+    """Return a one-line observability string for a LOCAL wall stage that fired
+    but did not commit a verified win. Pure (no I/O); caller logs it.
+    - candidate is None            -> stage ran, produced no plan
+    - candidate present (unverified/failed the verify+shortest gate) -> report its length
+    """
+    stage = str(stage)
+    if not candidate:
+        return "[%s L%d] %s fired: no candidate" % (gid, lvl, stage)
+    return ("[%s L%d] %s fired: candidate len=%d failed verify/shortest gate"
+            % (gid, lvl, stage, len(candidate)))
 
 
 # ---- Stage-3.5 runtime code-writer (BACKLOG #3) -------------------------------

@@ -483,6 +483,23 @@ def main():
     ok &= _check("C2 wiring: _wm_persist/_wm_reuse safe on empty records",
                  CR._wm_persist(_gd2, []) is None and CR._wm_reuse(_gd2, []) is None)
 
+    # 10b-4) LOCAL-lever observability (BACKLOG P1 R16 note): _local_stage_note is
+    #        the pure one-liner each local wall stage (blitz/brain_planner/go-explore/
+    #        runtime_coder) logs when it FIRED but did not commit a verified win, so a
+    #        wall every local lever silently failed no longer shows a blank gap between
+    #        the BFS timeout and "UNSOLVED". None -> "no candidate"; an unverified plan
+    #        -> reports its length + "failed verify/shortest gate".
+    _n_none = CR._local_stage_note("GOEXPLORE", "ls20", 5, None)
+    ok &= _check("obs note: None candidate -> 'no candidate' + names stage/game/level",
+                 "GOEXPLORE" in _n_none and "ls20 L5" in _n_none and "no candidate" in _n_none)
+    _n_cand = CR._local_stage_note("BLITZ", "ft09", 2, [(6, None), (6, None), (2, None)])
+    ok &= _check("obs note: unverified plan reports its length + failed-gate reason",
+                 "len=3" in _n_cand and "failed verify" in _n_cand and "ft09 L2" in _n_cand)
+    ok &= _check("obs note: empty-list plan treated as no candidate (not len=0)",
+                 "no candidate" in CR._local_stage_note("RUNTIME_CODER", "vc33", 4, []))
+    ok &= _check("obs note: always a one-line str (no newline)",
+                 isinstance(_n_none, str) and "\n" not in _n_none and "\n" not in _n_cand)
+
     # 10c) hypotheses: falsify drops mispredictors; discriminating action is the
     #      one whose predictions split the hypotheses the most.
     #   two hypotheses, only H_b predicts "X" for action 1 -> observing "X"

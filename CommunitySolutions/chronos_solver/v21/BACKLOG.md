@@ -43,6 +43,14 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    now the single blocker on all 3 walls.** *Next cycle (while cloud is down): push the
    LOCAL levers — confirm blitz/brain_planner/go-explore/runtime_coder actually fire on
    the walls (they log only on success today) and deepen the strongest one.*
+   [R17 OBSERVABILITY DONE 2026-07-10] `cadence_runner._local_stage_note` (pure) is now
+   the `else:` branch of all four local stages' verified-win `if` — a wall every local
+   lever silently failed now logs a per-stage `STAGE fired: no candidate` /
+   `STAGE fired: candidate len=N failed verify/shortest gate` line instead of a blank
+   gap. +4 offline `obs note:` checks (141 PASS). *Remaining (deepen the strongest):* read
+   the next Mac run's `*_fired:*` lines on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6, pick the
+   lever whose candidate gets closest to a win, and deepen it (e.g. raise
+   `V21_PLANNER_STATES`/tune `V21_GOEXPLORE_BINS`, or seed the L4 end-state suffix-BFS).
 4. **ls20 L5–L6 (LADDER / Go-Explore).** Variant re-root + TTRL suffix-BFS from the L4 end state.
    [PARTIAL — offline Go-Explore seed CODED] `blitz.blitz_macros` replays solved sibling-level
    plans (shortest winning prefix) as a Tier-0 wall seed, wired into `blitz_for_solver`. Commit

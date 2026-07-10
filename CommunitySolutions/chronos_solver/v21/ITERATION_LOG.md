@@ -713,3 +713,23 @@ builds on prior attempts instead of repeating them. Format:
   banner (not N warnings), skips wasted grounding on every wall, and the walls get their
   full budget on the local stages. **OPS: teacher/WM/arch stay dark until API credits
   are topped up — that is now the single blocker on the 3 walls.**
+
+- [2026-07-10 10:05Z] **R17 LOCAL-lever observability (act on the R16 next-cycle note).**
+  With cloud Opus billing-blocked (R16), the walls now rely entirely on the LOCAL
+  stages (blitz / brain_planner / go-explore / runtime_coder). Problem: those four
+  log ONLY on success, so run 085330Z shows nothing between each wall's `BFS ...
+  first pass timeout` and its `UNSOLVED at budget 600s` line — we cannot tell which
+  levers actually FIRED, or which produced a near-miss to deepen next. Fix
+  (cadence_runner.py only): pure `_local_stage_note(stage, gid, lvl, candidate)`
+  returns the one-line INFO each stage logs when it RAN but did not commit a verified
+  win (`None -> 'no candidate'`; an unverified plan -> `candidate len=N failed
+  verify/shortest gate`). Wired as the `else:` branch of all four stages' verified-win
+  `if` (blitz Stage-0, BRAIN_PLANNER Stage-3.4, GOEXPLORE Stage-3.45, RUNTIME_CODER
+  Stage-3.5). Pure logging — search logic, verify+shortest+exploit gates, corpus, and
+  the offline guard all untouched; empty-list plan treated as no-candidate (not len=0).
+  Verified: py_compile (cadence_runner + test_offline) GREEN; test_offline +4 new
+  `obs note:` checks GREEN (141 PASS / 0 FAIL); test_teacher/test_toddler/test_blackboard
+  not touched (no teacher/toddler/bb code changed). Only cadence_runner.py + test_offline.py
+  touched; no v19/v20; .env untracked. Expected effect: next Mac run's cron log shows a
+  per-wall `STAGE fired: ...` line for each of the 4 local levers on ls20 L5–L6 / ft09
+  L2–L5 / vc33 L4–L6, so the next cycle can see which lever gets closest and deepen it.
