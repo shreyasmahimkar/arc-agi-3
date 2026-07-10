@@ -354,9 +354,16 @@ def solve_game(gid, bfs_timeout, BFSSolver):
             llm = _get_runtime_llm()
             if llm is not None:
                 try:
-                    csol = _runtime_coder_for_solver(
-                        solver, lvl, llm,
-                        max_len=int(os.environ.get("V21_RUNTIME_MAXLEN", "200")))
+                    _rc_budget = float(os.environ.get("V21_RUNTIME_CODER_BUDGET", "300"))
+                    csol = _call_with_deadline(
+                        lambda: _runtime_coder_for_solver(
+                            solver, lvl, llm,
+                            max_len=int(os.environ.get("V21_RUNTIME_MAXLEN", "200"))),
+                        _rc_budget)
+                except TimeoutError as e:
+                    csol = None
+                    logger.info("[%s L%d] RUNTIME_CODER abandoned (%s) — moving to next wall",
+                                gid, lvl, e)
                 except Exception as e:
                     csol = None
                     logger.debug("[%s L%d] runtime_coder error: %s", gid, lvl, e)
@@ -740,6 +747,37 @@ def _local_stage_note(stage, gid, lvl, candidate, extra=None):
 
 # ---- Stage-3.5 runtime code-writer (BACKLOG #3) -------------------------------
 _RUNTIME_LLM = None  # cached across levels/games so we load the local model once
+
+
+def _call_with_deadline(fn, deadline):
+    """Run fn() under a HARD wall-clock deadline (seconds) in a daemon watchdog
+    thread; return its result, or raise TimeoutError if it doesn't finish in time.
+    The abandoned call keeps running in its detached daemon thread (doing I/O or
+    engine C-work with the GIL mostly released) but can never block the cadence
+    sweep. Mirrors OllamaBackend.complete's watchdog, one level up: a single hung
+    wall STAGE (swapping local model, wedged fork replay) must not consume the
+    whole ~2h cadence and starve the other games' walls (run 164123Z: ls20 L5's
+    RUNTIME_CODER went silent 66 min — normally ~1 min — so ft09 L2-L5 and vc33
+    L4-L6 were never attempted that sweep). deadline<=0 runs inline (legacy)."""
+    if not deadline or deadline <= 0:
+        return fn()
+    import threading
+    box = {}
+
+    def _work():
+        try:
+            box["r"] = fn()
+        except BaseException as e:  # noqa: BLE001 — surfaced to the caller thread
+            box["e"] = e
+
+    t = threading.Thread(target=_work, name="v21-stage-deadline", daemon=True)
+    t.start()
+    t.join(deadline)
+    if t.is_alive():
+        raise TimeoutError("stage exceeded hard deadline %.0fs" % float(deadline))
+    if "e" in box:
+        raise box["e"]
+    return box.get("r")
 
 
 def _get_runtime_llm():

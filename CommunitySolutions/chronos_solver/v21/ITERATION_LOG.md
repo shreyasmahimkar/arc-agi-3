@@ -809,3 +809,28 @@ builds on prior attempts instead of repeating them. Format:
   BRAIN_PLANNER now actually explore the 30 click targets instead of an empty set;
   watch for a candidate (verify/shortest-gated) or, if still 'no candidate', a
   non-instant runtime confirming the click search ran (then deepen bins/states).
+
+- **2026-07-10T18:xxZ (C1++ RUNTIME_CODER stage watchdog).** Health check found run
+  164123Z hung: after "[coder] runtime backend=ollama" (16:55 UTC) the log went SILENT
+  for 66 min with no cadence-exit line — the RUNTIME_CODER stage on ls20 L5 (normally
+  ~1 min: cf. 144827Z 11:02:37 GOEXPLORE → 11:03:31 fired-no-candidate) had wedged the
+  entire ~2h sweep, so ft09 L2–L5 and vc33 L4–L6 were never attempted this run and the
+  prior C1+ click-target plumbing fix could not be observed on vc33. The Ollama backend
+  already self-caps ONE completion at 180s (llm_backend watchdog), but the coder loops
+  refine attempts + replays candidate/safety-net plans on forks, and a swapping local
+  model / wedged engine replay can still stall the STAGE indefinitely. Fix (cadence_runner.py
+  only): new pure `_call_with_deadline(fn, deadline)` runs fn in a daemon watchdog thread and
+  raises TimeoutError if it overruns (mirrors OllamaBackend.complete one level up); the
+  RUNTIME_CODER call at solve_game is now wrapped with budget `V21_RUNTIME_CODER_BUDGET`
+  (default 300s; <=0 = legacy inline). On timeout it logs "[gid Llvl] RUNTIME_CODER abandoned
+  (…) — moving to next wall" and proceeds; the abandoned daemon thread's result is discarded,
+  and the corpus write still happens on the main thread AFTER _verify + shortest-gate, so a
+  late daemon finish cannot corrupt the corpus. Verified: py_compile GREEN (cadence_runner +
+  test_offline); test_offline 158 PASS / 0 FAIL (+5 new `stage deadline` checks: abandons a
+  hung stage, bounded <2s, returns fast value, <=0 runs inline, propagates fn's own exception).
+  test_teacher/test_toddler/test_blackboard untouched (not modified). Only cadence_runner.py +
+  test_offline.py touched; verify+shortest+exploit gates, corpus, offline guard all untouched;
+  no v19/v20; .env untracked. Expected effect: next Mac cadence caps each wall's coder at 300s,
+  so a single hung wall can no longer starve the sweep — every run should now reach ls20 L5-L6,
+  ft09 L2-L5 AND vc33 L4-L6 and log a `*_fired:*` line (incl. the C1+ click-target search) for
+  each; watch for a RUNTIME_CODER-abandoned line on ls20 L5 confirming the watchdog fired.

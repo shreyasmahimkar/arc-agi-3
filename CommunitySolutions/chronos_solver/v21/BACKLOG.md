@@ -61,8 +61,16 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    (mirrors `blitz_for_solver`: `_scan_actions` a==6 + optional B1 centroids under
    `V21_BRAIN_PERCEPTION`) now feeds both `plan_in_model_macro`/`_goexplore`. +3
    offline `click-only wall` checks (153 PASS); ls20/ft09 keyboard walls unaffected.
-   *Remaining (deepen the strongest):* read the next Mac run's
-   `*_fired:*` lines (incl. the new BLITZ breadth) on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6,
+   [C1++ STAGE WATCHDOG DONE 2026-07-10] Run 164123Z exposed a starvation bug: ls20 L5's
+   RUNTIME_CODER went SILENT 66 min (normally ~1 min, cf. 144827Z 11:02:37→11:03:31) — a
+   hung local model held the whole sweep, so ft09 L2–L5 / vc33 L4–L6 never got a turn AND
+   the C1+ click-target fix couldn't be observed on vc33. New pure `_call_with_deadline(fn,
+   deadline)` (daemon-thread watchdog, mirrors OllamaBackend.complete one level up) wraps the
+   RUNTIME_CODER call; env `V21_RUNTIME_CODER_BUDGET` (default 300s, <=0 = legacy inline).
+   Timeout → `RUNTIME_CODER abandoned` note + move to next wall; corpus write stays main-thread
+   post-verify (no daemon corruption). +5 offline `stage deadline` checks (158 PASS).
+   *Remaining (deepen the strongest):* now that the sweep reaches ALL walls, read the next Mac
+   run's `*_fired:*` lines (incl. BLITZ breadth) on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6,
    pick the lever whose candidate gets closest to a win, and deepen it (e.g. raise
    `V21_PLANNER_STATES`/tune `V21_GOEXPLORE_BINS`, or seed the L4 end-state suffix-BFS).
 4. **ls20 L5–L6 (LADDER / Go-Explore).** Variant re-root + TTRL suffix-BFS from the L4 end state.

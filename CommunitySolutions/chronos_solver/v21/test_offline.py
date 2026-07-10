@@ -40,6 +40,34 @@ def main():
     ok &= _check("ollama deadline bounded (<10s, not the 60s stall)", _elapsed < 10.0)
     os.environ.pop("V21_OLLAMA_DEADLINE", None)
 
+    # 2a) per-stage wall-clock watchdog: a hung wall STAGE (e.g. RUNTIME_CODER on a
+    #     swapping local model) must be ABANDONED so one wall can't eat the whole
+    #     ~2h cadence and starve the other games (run 164123Z: ls20 L5 coder went
+    #     silent 66 min; ft09 L2-L5 / vc33 L4-L6 never got a turn that sweep).
+    import time as _t, cadence_runner as _cr
+    _t0 = _t.time(); _timed_out = False
+    try:
+        _cr._call_with_deadline(lambda: _t.sleep(5), 0.3)
+    except TimeoutError:
+        _timed_out = True
+    _dt = _t.time() - _t0
+    ok &= _check("stage deadline abandons a hung stage (TimeoutError)", _timed_out)
+    ok &= _check("stage deadline bounded (<2s, not the 5s stall)", _dt < 2.0)
+    ok &= _check("stage deadline returns the value when fn is fast",
+                 _cr._call_with_deadline(lambda: 42, 5.0) == 42)
+    ok &= _check("stage deadline<=0 runs inline (legacy, no watchdog)",
+                 _cr._call_with_deadline(lambda: 7, 0) == 7)
+    _propagated = False
+    def _boom():
+        raise ValueError("boom")
+    try:
+        _cr._call_with_deadline(_boom, 5.0)
+    except ValueError:
+        _propagated = True
+    except Exception:
+        pass
+    ok &= _check("stage deadline propagates the fn's own exception", _propagated)
+
     # 3) runtime code-writer: write -> sandbox-exec -> plan -> win (ft09-like + ls20-like)
     coder = rc.RuntimeCoder(lb.get_backend())
     w1 = coder.solve_level({"note": "blind"}, lambda p: len(p) == 1 and p[0][0] == 6)
