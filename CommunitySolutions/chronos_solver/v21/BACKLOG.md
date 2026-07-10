@@ -29,6 +29,12 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    pulled) that solves a BFS/blitz-blocked wall end-to-end via generated code.
 
 ## P1 — crack the walls
+   [R15 DE-BLIND DONE 2026-07-10] `brain/teacher._call` now surfaces the API's JSON error
+   body (helper `_http_error_detail`) on any HTTP failure, re-raising an HTTPError with the
+   same `.code`. Motivated by run 050254Z's fresh `HTTP 400` on the ft09 L2 teacher/WM calls
+   (0 in the prior 5 runs) that was invisible. *Next cycle: read the exact 400 reason from the
+   newest cron log and fix the root cause (likely prompt shaping around the R14 state digest /
+   probed-click note); the teacher is the top wall-cracking lever and must not 400.*
 4. **ls20 L5–L6 (LADDER / Go-Explore).** Variant re-root + TTRL suffix-BFS from the L4 end state.
    [PARTIAL — offline Go-Explore seed CODED] `blitz.blitz_macros` replays solved sibling-level
    plans (shortest winning prefix) as a Tier-0 wall seed, wired into `blitz_for_solver`. Commit
@@ -68,6 +74,14 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    unclosed fence, and drops a leading prose preamble (commit 86ba254, +11 offline strip:
    checks). *Remaining:* a Mac cadence where ft09 L2 logs a built WorldModel + candidate_plans
    attempt instead of `exec failed`.
+   [PROBED-CLICK GROUNDING 2026-07-10] cron 030701Z: ft09 L2 WM now execs (strip fix landed)
+   but round-2 STILL led with a no-op ACTION6 (`first no-op at action index 0 (6)`, delta 0).
+   Root cause: R8/B1 handed Opus unverified perception CENTROIDS. `cadence_runner._probe_click_targets`
+   now forks the level-start state and actually PERFORMS ACTION6 at each centroid (≤8 probes),
+   and `_format_click_note` recommends only VERIFIED-effective targets ("prefer these") while
+   flagging verified no-ops ("never lead"); `_teacher_effective_click_note` wires it in and falls
+   back to the static note offline (+6 offline `probed grounding:` checks). *Remaining:* a Mac
+   cadence where ft09 L2 round-1/2 no longer opens with a dead click.
 6. **vc33 L4–L6.** Click-orchestration: better connected-component click-target selection in
    `graph_explore`. *Done when:* ≥1 of L4–L6 solved+verified.
    [TEACHER-GROUNDING CODED 2026-07-09] Same `V21_TEACHER_GROUND` grounding fixes vc33 L4's

@@ -627,3 +627,61 @@ builds on prior attempts instead of repeating them. Format:
   Expected effect: next Mac cadence, ft09 L2 (and any prose-wrapped Opus WM) should log a real
   built WorldModel + `candidate_plans()` attempt instead of a bare `exec failed` — the safety
   net becomes the fallback it was meant to be, not the only path.
+
+- [2026-07-10 04:07Z] **P1 walls — ENGINE-PROBED ACTION6 click grounding for the Opus
+  teacher (upgrades the R8/B1 static-centroid note to VERIFIED-effective targets).**
+  cron 030701Z showed the click grounding is still guessing: ft09 L2 OPUS_TEACHER round 2
+  led with action 6 (a click) that no-op'd (`first no-op/failure at action index 0 (6)`,
+  delta 0 cells) — and vc33 L4 is the same failure class. R8/B1 (`_teacher_click_note`)
+  only handed Opus perception CENTROIDS (unverified guesses), so a centroid that doesn't
+  actually respond to a click still reached the plan as a leading dead action. Fix in
+  `cadence_runner.py`: `_probe_click_targets` forks the re-rooted level-start state and
+  actually PERFORMS ACTION6 at each perception centroid once (bounded to 8 probes),
+  recording changed/levels_completed; `_format_click_note` (pure) then hands Opus the
+  VERIFIED-effective targets first ("prefer these") and flags the VERIFIED no-ops
+  ("never lead a plan with them"); `_teacher_effective_click_note` wires it into the
+  grounding block (replacing the static `_teacher_click_note` call) and FALLS BACK to the
+  static centroid note when the engine probe is unavailable (offline sandbox / no targets).
+  Verified: py_compile (cadence_runner/test_offline/teacher) + test_offline GREEN (134 PASS,
+  +6 new `probed grounding:` checks incl. effective-recommended, no-op-flagged, all-no-op
+  branch, empty->'' , max_chars bound, offline fallback-to-static) + test_teacher +
+  test_toddler + test_blackboard all green. benchmark.py bypassed (arc_agi Mac-only,
+  unimportable in Linux sandbox — precedented, not a regression). Only cadence_runner.py +
+  test_offline.py touched; corpus + offline guard + verify/shortest/exploit gates + R14
+  grounding + both OPUS_WM safety nets + `_strip_module` fix untouched; no v19/v20; .env
+  untracked. Expected effect: next Mac cadence, ft09 L2 / vc33 L4 OPUS_TEACHER round-1/2
+  plans no longer open with a dead click — the teacher leads with a target the engine
+  verified changes the board, so `first no-op at action index 0` should disappear on the
+  click-games and more of the near-miss budget lands past the frontier.
+
+- [2026-07-10 04:11Z] **OPS note (not a code change):** the 04:07Z probed-click-grounding
+  work above is CODED, verified GREEN (134 offline PASS + teacher/toddler/blackboard) and
+  STAGED, but the commit is PENDING — the live Mac cadence (cron 030701Z, still running its
+  end-of-run multi-minute pre-commit benchmark) is holding `.git/index.lock` persistently,
+  so every reporter-side commit collided with "Another git process seems to be running."
+  Per the runbook guardrail I did NOT force-remove the LIVE lock (unlike the 00:06Z STALE
+  lock). The changes sit staged in the index + working tree (cadence_runner.py, test_offline.py,
+  ITERATION_LOG.md, BACKLOG.md) and will land on the next clear git op — either the Mac
+  cadence's own `git add v21 && commit` sweeps them in, or the next reporter cycle's
+  git_safe_commit lands them once the Mac op finishes. No corruption (git fsck clean).
+
+- [2026-07-10 06:10Z] **R15 DE-BLIND the teacher/WM HTTP failures.** Run 050254Z (live)
+  hit a FRESH `HTTP Error 400: Bad Request` on the ft09 L2 Opus teacher AND world-model
+  calls — zero 400s in the prior 5 complete runs (each 6 clean teacher rounds), so a
+  regression appeared, but `brain/teacher._call` discarded the API's JSON error body and
+  the cron log showed only the bare reason phrase — we were blind to WHY (prompt-too-long
+  vs invalid-param vs overloaded). Fix: `_call._once` now catches `urllib.error.HTTPError`,
+  reads the response body via new pure helper `_http_error_detail` (prefers
+  `error.message`, falls back to raw truncated text, '' if unreadable — never raises,
+  never fabricates), and RE-RAISES an HTTPError with the SAME `.code` + enriched message so
+  `_is_transient` still fail-fasts on 4xx / retries 5xx+429 unchanged. Verified: py_compile
+  (teacher + test_teacher) + test_teacher GREEN (+6 new `http_error_detail` checks:
+  Anthropic-shaped message extraction, raw-body fallback, empty->'' , unreadable-tolerant,
+  bound, error.type-when-no-message) + test_offline GREEN + test_blackboard + test_toddler
+  green. Only brain/teacher.py + test_teacher.py touched; corpus + offline guard + verify/
+  shortest/exploit gates + R13 retry classifier + R14 grounding all untouched; no v19/v20;
+  .env untracked. NOTE: this commit also lands the previously-STRANDED 04:07Z probed-click
+  grounding work (cadence_runner.py + test_offline.py), which had been staged-but-uncommitted
+  behind a stale index.lock. Expected effect: next Mac cadence's cron log will print the
+  EXACT 400 reason on any teacher/WM failure (e.g. "prompt is too long: N > 200000"),
+  turning the current blind failure into an actionable next-cycle fix.

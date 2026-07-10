@@ -63,6 +63,38 @@ def _key():
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("V21_OPUS_KEY")
 
 
+def _http_error_detail(e, limit=800):
+    """Extract a compact reason string from an HTTPError's response body without
+    raising. The Anthropic API returns a JSON error body on 4xx/5xx; prefer its
+    error.message, fall back to the raw (truncated) body, and return '' if there
+    is nothing readable. Pure except for e.read() (which is offline-mockable) so
+    it is fully unit-testable with a fake error object."""
+    raw = b""
+    try:
+        raw = e.read() or b""
+    except Exception:
+        raw = getattr(e, "_body", b"") or b""
+    if not raw:
+        return ""
+    try:
+        text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else str(raw)
+    except Exception:
+        return ""
+    text = text.strip()
+    if not text:
+        return ""
+    try:
+        obj = json.loads(text)
+        err = obj.get("error") if isinstance(obj, dict) else None
+        if isinstance(err, dict):
+            msg = err.get("message") or err.get("type")
+            if msg:
+                return str(msg)[:limit]
+    except Exception:
+        pass
+    return text[:limit]
+
+
 def _is_transient(e):
     """True for network errors worth RETRYING (R13 robustness). The Mac cadence
     box has intermittent DNS on the launchd network path — run 213152Z lost the
@@ -116,7 +148,7 @@ class OpusTeacher:
         return bool(_key())
 
     def _call(self, system, user):
-        import urllib.request
+        import urllib.request, urllib.error
         body = {"model": self.model, "max_tokens": self.max_tokens,
                 "system": system, "messages": [{"role": "user", "content": user}]}
         payload = json.dumps(body).encode()
@@ -128,8 +160,25 @@ class OpusTeacher:
                 headers={"content-type": "application/json",
                          "x-api-key": _key(),
                          "anthropic-version": "2023-06-01"})
-            with urllib.request.urlopen(req, timeout=deadline) as r:
-                data = json.loads(r.read())
+            try:
+                with urllib.request.urlopen(req, timeout=deadline) as r:
+                    data = json.loads(r.read())
+            except urllib.error.HTTPError as e:
+                # R15 DE-BLIND: urllib's HTTPError.__str__ is only the bare reason
+                # phrase ("HTTP Error 400: Bad Request"), so the cadence log never
+                # shows WHY a teacher/WM call failed on a wall — run 050254Z hit a
+                # fresh 400 on ft09 L2 (0 in the prior 5 complete runs) and we were
+                # blind to the cause. The Anthropic API returns a JSON error body
+                # ({"type":"error","error":{"type":..,"message":..}}) explaining it
+                # (prompt too long / invalid param / overloaded). Read it and fold
+                # it into the exception message. Re-raise as HTTPError with the SAME
+                # .code so _is_transient still fail-fasts on 4xx and retries 5xx/429.
+                detail = _http_error_detail(e)
+                if detail:
+                    raise urllib.error.HTTPError(
+                        e.url, e.code, "%s — %s" % (e.reason, detail),
+                        e.headers, None)
+                raise
             # messages API returns {"content":[{"type":"text","text":...}], ...}
             parts = data.get("content", [])
             return "".join(p.get("text", "") for p in parts if p.get("type") == "text")

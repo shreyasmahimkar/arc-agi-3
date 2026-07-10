@@ -137,6 +137,38 @@ def main():
         raised2 = True
     ok &= _check("non-transient fails fast (1 attempt)", raised2 and hard["n"] == 1)
 
+    # --- R15 de-blind: surface the API JSON error body on HTTP failures -------------
+    class _FakeHTTPError(Exception):
+        def __init__(self, body):
+            self._payload = body if isinstance(body, bytes) else str(body).encode()
+        def read(self):
+            return self._payload
+    # Anthropic-shaped error body -> the human-readable message is extracted
+    det = T._http_error_detail(_FakeHTTPError(
+        '{"type":"error","error":{"type":"invalid_request_error",'
+        '"message":"prompt is too long: 250000 tokens > 200000"}}'))
+    ok &= _check("http_error_detail pulls error.message",
+                 "prompt is too long" in det and "250000" in det)
+    # non-JSON body -> raw text (still informative), truncated
+    ok &= _check("http_error_detail falls back to raw body",
+                 T._http_error_detail(_FakeHTTPError("upstream connect error 502")) ==
+                 "upstream connect error 502")
+    # empty / unreadable body -> '' (never raises, never fabricates)
+    ok &= _check("http_error_detail empty body -> ''",
+                 T._http_error_detail(_FakeHTTPError("")) == "")
+    class _Unreadable(Exception):
+        def read(self):
+            raise IOError("stream already consumed")
+    ok &= _check("http_error_detail tolerates unreadable body",
+                 T._http_error_detail(_Unreadable()) == "")
+    # bound respected
+    ok &= _check("http_error_detail bounded",
+                 len(T._http_error_detail(_FakeHTTPError("x" * 5000), limit=200)) == 200)
+    # error.type used when message absent
+    ok &= _check("http_error_detail uses error.type when no message",
+                 T._http_error_detail(_FakeHTTPError(
+                     '{"error":{"type":"overloaded_error"}}')) == "overloaded_error")
+
     # --- R14 grounding: the STATE block reaches Opus verbatim, additively -----------
     os.environ["ANTHROPIC_API_KEY"] = "sk-test"
     STATE = "scene: dims=64x64 background=4 n_objects=3\naction->outcome: a1 changed=True"

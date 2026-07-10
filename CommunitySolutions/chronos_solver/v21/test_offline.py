@@ -771,6 +771,31 @@ def main():
     ok &= _check("teacher grounding: gate ON when V21_TEACHER_GROUND=1",
                  cr._teacher_ground_enabled({"V21_TEACHER_GROUND": "1"}) is True)
 
+    # R8/B1+ ENGINE-PROBED click grounding: upgrade the static-centroid note to
+    # engine-verified effective ACTION6 targets so the teacher stops leading a plan
+    # with a dead click (cron 030701Z: ft09 L2 round-2 first action = ACTION6 no-op,
+    # 0 cells changed; vc33 L4 same class). _format_click_note is the pure formatter.
+    _probed = [{"x": 2, "y": 2, "changed": True, "lc": 2},
+               {"x": 4, "y": 3, "changed": False, "lc": 2}]
+    _pnote = cr._format_click_note(_probed)
+    ok &= _check("probed grounding: effective target recommended (VERIFIED to change)",
+                 "VERIFIED to change" in _pnote and "(2,2)" in _pnote)
+    ok &= _check("probed grounding: verified no-op flagged 'never lead'",
+                 "no-ops" in _pnote and "(4,3)" in _pnote)
+    ok &= _check("probed grounding: all-no-op uses the 'none changed' branch",
+                 "none changed" in cr._format_click_note(
+                     [{"x": 1, "y": 1, "changed": False, "lc": 0}]))
+    ok &= _check("probed grounding: empty/None -> '' (no crash)",
+                 cr._format_click_note([]) == "" and cr._format_click_note(None) == "")
+    ok &= _check("probed grounding: bounded to max_chars",
+                 len(cr._format_click_note(_probed, max_chars=40)) <= 40)
+    #   with no live engine (offline sandbox) the probe returns None and the
+    #   effective-note builder FALLS BACK to the static centroid note — never crashes
+    #   and never drops grounding entirely.
+    _fallback = cr._teacher_effective_click_note(None, 2, _gframe)
+    ok &= _check("probed grounding: falls back to static note when probe unavailable",
+                 "(2,2)" in _fallback and "(4,3)" in _fallback)
+
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
 

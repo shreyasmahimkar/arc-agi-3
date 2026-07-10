@@ -1045,6 +1045,90 @@ def _teacher_click_note(frame, limit=24, max_chars=500):
         return ""
 
 
+def _format_click_note(probed, max_chars=500):
+    """Pure formatter for the ENGINE-PROBED ACTION6 grounding note. `probed` is a list
+    of {'x','y','changed','lc'} from _probe_click_targets (each perception centroid
+    actually clicked once on a fork of the level-start state). VERIFIED-effective
+    targets (those that change the board) are recommended first; VERIFIED no-ops are
+    listed as 'never lead a plan with these' so the teacher stops opening a plan with a
+    dead click (ft09 L2 / vc33 L4 round-1 first-action no-ops, cron 030701Z). Pure;
+    returns '' on empty input."""
+    if not probed:
+        return ""
+    try:
+        eff = [t for t in probed if t.get("changed")]
+        dead = [t for t in probed if not t.get("changed")]
+        _fmt = lambda ts: ", ".join("(%d,%d)" % (int(t["x"]), int(t["y"])) for t in ts)
+        if eff:
+            note = ("Probed ACTION6 click targets (col,row) — VERIFIED to change the "
+                    "board from the level-start frame, prefer these: [" + _fmt(eff) + "].")
+            if dead:
+                note += (" These are VERIFIED no-ops from the start (never lead a plan "
+                         "with them): [" + _fmt(dead) + "].")
+        else:
+            note = ("Probed ACTION6 click targets (col,row) — none changed the "
+                    "level-start frame alone (may still matter after other actions): ["
+                    + _fmt(probed) + "].")
+        if len(note) > max_chars:
+            note = note[:max_chars - 2].rstrip().rstrip(",") + "]."
+        return note
+    except Exception:
+        return ""
+
+
+def _probe_click_targets(solver, level_idx, max_targets=8):
+    """Fork the re-rooted level-start state and actually PERFORM ACTION6 at each
+    perception click target once, recording whether it changes the frame + reached
+    levels_completed. Upgrades the R8/B1 STATIC-centroid grounding (unverified guesses)
+    to engine-verified effective targets, killing the leading-no-op-click failure
+    (ft09 L2 / vc33 L4). Pure fork (never mutates the real run); engine imports are
+    Mac-only/lazy. Returns None on any failure so the teacher path degrades to the
+    static note. `max_targets` bounds the click probes (each is an engine step)."""
+    try:
+        import numpy as np
+        from combined_agent import ActionInput, GameAction
+        from brain.perception import click_targets
+        res = solver._make_start_state(level_idx)
+        if res is None:
+            return None
+        game, f0 = res
+        f0 = np.asarray(f0)
+        tgts = click_targets(f0.tolist(), limit=max_targets) or []
+        if not tgts:
+            return None
+        probed = []
+        for t in tgts:
+            try:
+                g = solver._restore(solver._snap(game))
+                r = g.perform_action(
+                    ActionInput(id=GameAction.from_id(6),
+                                data={"x": t["x"], "y": t["y"]}), raw=True)
+                nf = np.array(r.frame[-1]) if getattr(r, "frame", None) else None
+                changed = bool(nf is not None and not np.array_equal(nf, f0))
+                lc = int(getattr(r, "levels_completed", 0) or 0)
+            except Exception:
+                changed, lc = False, 0
+            probed.append({"x": int(t["x"]), "y": int(t["y"]),
+                           "changed": changed, "lc": lc})
+        return probed
+    except Exception:
+        return None
+
+
+def _teacher_effective_click_note(solver, level_idx, frame):
+    """R8/B1+ grounding: probe each perception click target on a fork and hand the Opus
+    teacher the ENGINE-VERIFIED effective ACTION6 targets. Falls back to the static
+    unverified centroid note when the engine probe is unavailable (e.g. offline sandbox
+    or no click targets). Pure; returns '' only if both paths yield nothing."""
+    try:
+        note = _format_click_note(_probe_click_targets(solver, level_idx))
+        if note:
+            return note
+    except Exception:
+        pass
+    return _teacher_click_note(frame)
+
+
 def _opus_teacher_for_solver(solver, level_idx, gid):
     """Stage-3.6: hand the WHITE-BOX game source + stuck level to cloud Opus and get
     a candidate plan. UNVERIFIED (caller verifies + shortest-gates). Refuses the
@@ -1081,7 +1165,7 @@ def _opus_teacher_for_solver(solver, level_idx, gid):
     # still verify + shortest + exploit-gated so a bad ground note can't corrupt the
     # corpus. _f0 is the start frame captured from _make_start_state above.
     if _teacher_ground_enabled() and _f0 is not None:
-        _gnote = _teacher_click_note(_f0)
+        _gnote = _teacher_effective_click_note(solver, level_idx, _f0)
         if _gnote:
             notes = notes + " " + _gnote
 
