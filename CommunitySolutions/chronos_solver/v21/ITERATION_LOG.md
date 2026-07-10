@@ -755,3 +755,30 @@ builds on prior attempts instead of repeating them. Format:
   BLITZ miss lines on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6 carry `| macros=.. simple=..
   clicks=.. tier=..`, so the next cycle can see whether blitz has anything to try and
   deepen the right thing (enumerate more click targets vs raise repeat_K/depth).
+
+- [2026-07-10 14:05Z] **R7(b) action-frugality tie-break in evolve (closes the last
+  remaining R7 sub-item).** With cloud Opus still billing-blocked (R16) and R17/R18's
+  per-stage telemetry not yet landed on a Mac run (newest run 085330Z predates both
+  commits), the one wall-relevant item that is fully UNBLOCKED + offline-verifiable this
+  cycle is R7(b), explicitly flagged "Remaining" under R7 after R7(a) shipped 07-09.
+  Implements DREAMTEAM's (arXiv:2605.09650) action-frugality objective — 31% fewer
+  env-actions/game. Changes (evolve.py only): `evolve_step` gained an optional trailing
+  `cost_fn=None`; when supplied, a challenger that TIES the current best on held-out RHAE
+  (|Δ|<=1e-6) but solves those walls with STRICTLY fewer env-actions is promoted too
+  (`frugal` branch), preserving the generalization gate (`ct >= base_train`) and the
+  strict-RHAE gate (`beats`). New pure helper `_cost` (None-safe, exception-degrades to
+  None so frugality stays inert on failure); companion `config_aware_cost_fn(walls,
+  probe_fn, miss_penalty)` returns the same-probe env-action total (solved walls summed;
+  each unsolved wall charged a fixed penalty so solving FEWER walls never looks cheaper),
+  degrading to 0.0 offline (no probe) so nothing promotes on noise — mirrors
+  config_aware_eval_fn's floor contract. History row now carries `held_actions`.
+  Extends R4's quadratic-RHAE pressure to already-RHAE-1.0 challengers that shorten a
+  solve. Verified: py_compile (evolve + test_offline) GREEN; test_offline 150 PASS / 0
+  FAIL (+5 new `frugality:` checks — cheaper challenger promotes w/ cost_fn, back-compat
+  no-cost rejects the same challenger, no-probe cost 0.0, miss-penalty charged, solved <
+  unsolved); test_teacher / test_toddler / test_blackboard GREEN (untouched). Only
+  evolve.py + test_offline.py touched; corpus + offline guard + verify/shortest/exploit
+  gates all untouched; no v19/v20; .env untracked. Expected effect: on the network-
+  enabled Mac, wiring `cadence_runner._make_evolve_probe` into `config_aware_cost_fn` lets
+  a challenger that raises RHAE-1.0 wall solves to FEWER actions PROMOTE on `cost=` — the
+  evolve log now prints `cost=` per challenger and `PROMOTE(frugal)` vs `PROMOTE(rhae)`.

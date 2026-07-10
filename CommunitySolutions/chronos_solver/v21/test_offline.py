@@ -254,6 +254,49 @@ def main():
     ok &= _check("cfg-eval promotes a blitz_K challenger that cracks a wall", promoted2 is True)
     evolve.save_champion("champion.json", _c0)  # restore seed champion (no side effects)
 
+    #   (d) R7(b) action-frugality tie-break: a challenger that TIES held-out RHAE but
+    #       solves the wall in FEWER env-actions is promoted; without a cost_fn it is not.
+    walls_fr = {"ft09": [{"game": "ft09", "level": 2, "baseline": 8}]}
+    #   both champ config and challenger config solve the wall at RHAE 1.0 (actions==base),
+    #   so held RHAE is identical — only the action COST differs.
+    def _flat_rhae_eval(config, games):
+        return {g: 1.0 for g in games}            # every config already maxes held RHAE
+    def _cost_probe(config, gid, lvl):
+        # cheaper config (a shorter action_order) solves in fewer env-actions
+        return 5 if len(config.get("action_order", [0] * 7)) <= 4 else 8
+    _cost_fn = evolve.config_aware_cost_fn(walls_fr, probe_fn=_cost_probe)
+    class _FrugalLLM:
+        name = "frugal"
+        def complete(self, prompt, system=None, max_tokens=800, stop=None):
+            return '[{"action_order": [6, 1, 2, 4], "note": "fewer actions"}]'
+    _c1 = evolve.load_champion("champion.json")
+    #   cost_fn present -> equal-RHAE-but-cheaper challenger PROMOTES on frugality
+    _, prom_frugal = evolve.evolve_step(
+        "champion.json", _HIST, walls_fr["ft09"], {"ft09": 1.0}, _FrugalLLM(),
+        _flat_rhae_eval, ["ft09"], ["ft09"], n=1, cost_fn=_cost_fn)
+    ok &= _check("frugality: equal-RHAE cheaper challenger promotes with cost_fn",
+                 prom_frugal is True)
+    evolve.save_champion("champion.json", _c1)
+    #   no cost_fn -> the SAME equal-RHAE challenger is rejected (strict-RHAE gate only)
+    _c2 = evolve.load_champion("champion.json")
+    _, prom_nocost = evolve.evolve_step(
+        "champion.json", _HIST, walls_fr["ft09"], {"ft09": 1.0}, _FrugalLLM(),
+        _flat_rhae_eval, ["ft09"], ["ft09"], n=1)
+    ok &= _check("frugality: no cost_fn -> equal-RHAE challenger not promoted (back-compat)",
+                 prom_nocost is False)
+    evolve.save_champion("champion.json", _c2)
+    #   config_aware_cost_fn: no probe -> 0.0 (inert); a MISS is charged the penalty
+    _cf0 = evolve.config_aware_cost_fn(walls_fr, probe_fn=None)
+    ok &= _check("frugality: cost_fn no-probe -> 0.0 (tie-break inert offline)",
+                 _cf0({"action_order": [6]}, ["ft09"]) == 0.0)
+    def _miss_probe(config, gid, lvl):
+        return None                               # wall unsolved -> miss penalty
+    _cf1 = evolve.config_aware_cost_fn(walls_fr, probe_fn=_miss_probe, miss_penalty=99.0)
+    ok &= _check("frugality: unsolved wall charged the miss penalty",
+                 _cf1({"action_order": [6]}, ["ft09"]) == 99.0)
+    ok &= _check("frugality: solved wall cheaper than an unsolved one",
+                 evolve.config_aware_cost_fn(walls_fr, _cost_probe)({"action_order": [6, 1, 2, 4]}, ["ft09"]) < 99.0)
+
     # 9) blitz Stage-0 (BACKLOG #2): pure cheap-win search over injected closures
     import blitz
     def _clone(s):

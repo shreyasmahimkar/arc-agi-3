@@ -78,34 +78,66 @@ def propose_challengers(champion, walls, rhae, llm, n=4):
 
 
 def evolve_step(champion_path, history_path, walls, cur_rhae, llm, eval_fn,
-                train_games, heldout_games, n=4):
+                train_games, heldout_games, n=4, cost_fn=None):
     """eval_fn(config, games) -> {game: mean_rhae}. Promote a challenger only if it
-    beats champion on HELD-OUT without regressing TRAIN. Returns (champion, promoted)."""
+    beats champion on HELD-OUT without regressing TRAIN. Returns (champion, promoted).
+
+    R7(b) action-frugality (DREAMTEAM arXiv:2605.09650 — 31% fewer env-actions per
+    game): when an optional `cost_fn(config, games) -> total_env_actions` is supplied,
+    a challenger that TIES the current best on held-out RHAE but solves those walls with
+    STRICTLY fewer env-actions is promoted too (lower cost = more frugal). This extends
+    R4's quadratic-RHAE pressure to challengers that already hit RHAE 1.0 but do it in
+    fewer steps. Purely additive: with `cost_fn=None` the tie-break is inert and behaviour
+    is identical to before (a challenger must strictly beat held-out RHAE to promote)."""
     champ = load_champion(champion_path)
     champ_train = eval_fn(champ, train_games)
     champ_held = eval_fn(champ, heldout_games)
     base_train = _mean(champ_train); base_held = _mean(champ_held)
-    logger.info("[evolve] champion v%s train=%.3f held=%.3f", champ.get("version"), base_train, base_held)
+    best_cost = _cost(cost_fn, champ, heldout_games)
+    logger.info("[evolve] champion v%s train=%.3f held=%.3f cost=%s",
+                champ.get("version"), base_train, base_held,
+                "n/a" if best_cost is None else round(best_cost, 1))
 
     best, best_held, best_train, promoted = champ, base_held, base_train, False
     for i, cand in enumerate(propose_challengers(champ, walls, cur_rhae, llm, n)):
         ct = _mean(eval_fn(cand, train_games))
         ch = _mean(eval_fn(cand, heldout_games))
-        ok = (ch > best_held + 1e-6) and (ct >= base_train - 1e-6)   # generalization-gated
-        logger.info("[evolve] challenger %d train=%.3f held=%.3f -> %s",
-                    i, ct, ch, "PROMOTE" if ok else "reject")
+        cc = _cost(cost_fn, cand, heldout_games)
+        no_regress = ct >= base_train - 1e-6                        # generalization-gated
+        beats = ch > best_held + 1e-6                               # strictly better RHAE
+        frugal = (best_cost is not None and cc is not None and
+                  abs(ch - best_held) <= 1e-6 and cc < best_cost - 1e-6)  # tie -> fewer actions
+        ok = no_regress and (beats or frugal)
+        why = "PROMOTE(rhae)" if (ok and beats) else ("PROMOTE(frugal)" if ok else "reject")
+        logger.info("[evolve] challenger %d train=%.3f held=%.3f cost=%s -> %s",
+                    i, ct, ch, "n/a" if cc is None else round(cc, 1), why)
         if ok:
             cand["version"] = champ.get("version", 0) + 1
             cand["rhae"] = cur_rhae
             best, best_held, best_train, promoted = cand, ch, ct, True
+            if cc is not None:
+                best_cost = cc
 
     if promoted:
         save_champion(champion_path, best)
     with open(history_path, "a") as f:
         f.write(json.dumps({"t": int(time.time()), "champion_v": best.get("version"),
                             "train": round(best_train, 4), "held": round(best_held, 4),
+                            "held_actions": (None if best_cost is None else round(best_cost, 1)),
                             "promoted": promoted, "notes": best.get("notes")}) + "\n")
     return best, promoted
+
+
+def _cost(cost_fn, config, games):
+    """Total env-actions of `config` over `games` (lower = more frugal), or None when
+    no cost_fn is supplied. Any failure degrades to None so frugality stays inert."""
+    if cost_fn is None:
+        return None
+    try:
+        c = cost_fn(config, games)
+        return float(c) if c is not None else None
+    except Exception:
+        return None
 
 
 def _rhae_level(human, ai_actions):
@@ -156,6 +188,36 @@ def config_aware_eval_fn(corpus_rhae, walls_by_game, probe_fn=None):
         return out
 
     return _f
+
+
+def config_aware_cost_fn(walls_by_game, probe_fn=None, miss_penalty=100000.0):
+    """R7(b) companion to config_aware_eval_fn: the env-action COST of a config over the
+    walls (lower = more frugal). `probe_fn(config, game, level) -> actions|None` is the
+    SAME real-engine rollout the eval uses; cost = sum of solved-wall action counts, with
+    each still-UNSOLVED wall charged a fixed `miss_penalty` so a config that solves FEWER
+    walls can never look cheaper than one that solves more. Returns cost_fn(config, games)
+    -> float, wired into evolve_step(cost_fn=...) as the equal-RHAE tie-break.
+
+    When `probe_fn` is None (offline / no engine) it returns 0.0 for every config, so the
+    frugality tie-break is inert and nothing promotes on noise — mirroring the eval's
+    degrade-to-floor contract."""
+    walls_by_game = walls_by_game or {}
+
+    def _c(config, games):
+        if not probe_fn:
+            return 0.0
+        total = 0.0
+        for g in games:
+            for w in walls_by_game.get(g, []):
+                lvl = w.get("level")
+                try:
+                    actions = probe_fn(config, g, lvl)
+                except Exception:
+                    actions = None
+                total += float(actions) if actions else miss_penalty
+        return total
+
+    return _c
 
 
 def _mean(d):
