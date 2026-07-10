@@ -32,9 +32,17 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    [R15 DE-BLIND DONE 2026-07-10] `brain/teacher._call` now surfaces the API's JSON error
    body (helper `_http_error_detail`) on any HTTP failure, re-raising an HTTPError with the
    same `.code`. Motivated by run 050254Z's fresh `HTTP 400` on the ft09 L2 teacher/WM calls
-   (0 in the prior 5 runs) that was invisible. *Next cycle: read the exact 400 reason from the
-   newest cron log and fix the root cause (likely prompt shaping around the R14 state digest /
-   probed-click note); the teacher is the top wall-cracking lever and must not 400.*
+   (0 in the prior 5 runs) that was invisible.
+   [R16 ROOT-CAUSE READ 2026-07-10] Run 065844Z revealed the exact 400 on EVERY wall:
+   `Your credit balance is too low ... go to Plans & Billing`. NOT a prompt-shaping bug —
+   a BILLING block. `brain/teacher` now latches `_CLOUD_DISABLED` on the first credit-
+   exhausted 400 (`_note_cloud_error`), flips `available()` to False so teacher/WM/arch
+   skip cleanly (no wasted per-wall grounding prep, no repeat warnings), logs ONE loud
+   banner, and auto-recovers next run once credits are topped up. +9 offline checks.
+   ⛔ **OPS BLOCKER: the cloud teacher stays dark until API credits are added — this is
+   now the single blocker on all 3 walls.** *Next cycle (while cloud is down): push the
+   LOCAL levers — confirm blitz/brain_planner/go-explore/runtime_coder actually fire on
+   the walls (they log only on success today) and deepen the strongest one.*
 4. **ls20 L5–L6 (LADDER / Go-Explore).** Variant re-root + TTRL suffix-BFS from the L4 end state.
    [PARTIAL — offline Go-Explore seed CODED] `blitz.blitz_macros` replays solved sibling-level
    plans (shortest winning prefix) as a Tier-0 wall seed, wired into `blitz_for_solver`. Commit

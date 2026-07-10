@@ -63,6 +63,58 @@ def _key():
     return os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("V21_OPUS_KEY")
 
 
+# --- run-level cloud-credit latch (billing-aware short-circuit) --------------
+# When the Anthropic API returns a definitive BILLING failure (an HTTP 400 whose
+# body says the credit balance is too low — run 065844Z hit this on EVERY wall of
+# every game after R15 de-blinded the 400 reason), every subsequent teacher / WM /
+# arch call this run will 400 identically, and each one first burns the caller's
+# expensive per-wall grounding prep (source read, start-state probe, click-target
+# probing, state digest) before the doomed request. Latch it once: available()
+# flips to False so all four cloud entrypoints skip cleanly (the walls fall straight
+# to the LOCAL stages: blitz / brain_planner / go-explore / runtime coder), and we
+# log ONE loud, actionable banner instead of N noisy identical warnings. A fresh
+# cadence process (the next Mac run) starts with the latch reset, so topping up the
+# credit balance self-heals automatically — no code change needed to recover.
+_CLOUD_DISABLED = {"reason": ""}
+
+
+def cloud_disabled():
+    """Return the billing-disable reason string ('' if the cloud is still usable)."""
+    return _CLOUD_DISABLED["reason"]
+
+
+def _reset_cloud_latch():
+    """Test hook: clear the run-level latch (a real run gets a fresh process)."""
+    _CLOUD_DISABLED["reason"] = ""
+
+
+def _looks_credit_exhausted(msg):
+    """True when an error/message is the Anthropic 'out of credit' billing failure.
+    Pure lowercase substring check, safe on any exception text or None."""
+    t = (str(msg) if msg is not None else "").lower()
+    return ("credit balance is too low" in t
+            or "insufficient credit" in t
+            or ("plans" in t and "billing" in t))
+
+
+def _note_cloud_error(e):
+    """Latch the run-level cloud-disable flag when an error is a definitive BILLING
+    failure, logging ONE loud banner the first time. No-op for transient/other
+    errors (those stay owned by the retry classifier). Returns True if latched."""
+    if _CLOUD_DISABLED["reason"]:
+        return True
+    if _looks_credit_exhausted(e):
+        _CLOUD_DISABLED["reason"] = str(e)[:300]
+        logger.warning(
+            "CLOUD OPUS DISABLED for this run: Anthropic credit balance is exhausted "
+            "(%s). Teacher / world-model / arch calls will be SKIPPED; walls rely on "
+            "LOCAL stages only (blitz / brain_planner / go-explore / runtime coder). "
+            "ACTION: top up at Plans & Billing — the next cadence run auto-recovers.",
+            _CLOUD_DISABLED["reason"])
+        return True
+    return False
+
+
 def _http_error_detail(e, limit=800):
     """Extract a compact reason string from an HTTPError's response body without
     raising. The Anthropic API returns a JSON error body on 4xx/5xx; prefer its
@@ -145,7 +197,7 @@ class OpusTeacher:
         self.model, self.max_tokens = model, max_tokens
 
     def available(self):
-        return bool(_key())
+        return bool(_key()) and not _CLOUD_DISABLED["reason"]
 
     def _call(self, system, user):
         import urllib.request, urllib.error
@@ -216,6 +268,7 @@ class OpusTeacher:
         try:
             raw = self._call(SYSTEM, user)
         except Exception as e:
+            _note_cloud_error(e)
             logger.warning("[%s] opus teacher call failed: %s", gid, e)
             return None
         return parse_plan(raw)
@@ -233,6 +286,7 @@ class OpusTeacher:
         try:
             raw = self._call(ARCH_SYSTEM, user)
         except Exception as e:
+            _note_cloud_error(e)
             logger.warning("opus arch call failed: %s", e)
             return None
         return _strip_module(raw)
@@ -330,6 +384,7 @@ def _wm_methods():
         try:
             raw = self._call(WM_SYSTEM, user)
         except Exception as e:
+            _note_cloud_error(e)
             logger.warning("[%s] opus world-model call failed: %s", gid, e)
             return None
         return _strip_module(raw)

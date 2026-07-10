@@ -685,3 +685,31 @@ builds on prior attempts instead of repeating them. Format:
   behind a stale index.lock. Expected effect: next Mac cadence's cron log will print the
   EXACT 400 reason on any teacher/WM failure (e.g. "prompt is too long: N > 200000"),
   turning the current blind failure into an actionable next-cycle fix.
+
+- [2026-07-10 08:05Z] **R16 BILLING-AWARE cloud latch (act on the R15 finding).**
+  R15 de-blinded the teacher/WM 400 last cycle; run 065844Z then revealed the exact
+  reason on EVERY wall of every game: `HTTP 400 — Your credit balance is too low ...
+  go to Plans & Billing`. This is a BILLING block, not a prompt bug — the top
+  wall-cracking lever (Opus teacher / WM / arch) is dead until the user tops up.
+  Problem: with credits exhausted, every wall level still ran the full per-wall
+  grounding prep (source read, start-state probe, click-target probing, R14 state
+  digest) BEFORE the doomed call, then logged an identical WARNING — N times per run,
+  pure waste + log noise. Fix (brain/teacher.py only): module-level run-latch
+  `_CLOUD_DISABLED` + pure helpers `_looks_credit_exhausted`, `_note_cloud_error`
+  (latches once, logs ONE loud actionable banner), `cloud_disabled()`, `_reset_cloud_latch()`.
+  Wired `_note_cloud_error(e)` into all three cloud except-handlers (teacher/arch/WM);
+  `available()` now returns False once latched, so all four entrypoints (incl.
+  solve_wall_iterative) short-circuit BEFORE any grounding prep or network — walls fall
+  straight to the LOCAL stages (blitz/brain_planner/go-explore/runtime_coder). Latch is
+  process-local so the next Mac cadence starts fresh: topping up credits auto-recovers,
+  no code change needed. Verified: py_compile (teacher+test_teacher) GREEN;
+  test_teacher +9 new checks GREEN (phrase detection incl. None, non-billing does NOT
+  latch, billing latches once, available() flips False despite a valid key,
+  latched solve_wall no-ops WITHOUT touching the network via a throwing _call mock,
+  reset restores availability); test_offline + test_blackboard + test_toddler GREEN.
+  Only brain/teacher.py + test_teacher.py touched; corpus + offline guard + verify/
+  shortest/exploit gates + R13 retry classifier + R14/R15 grounding all untouched; no
+  v19/v20; .env untracked. Expected effect: next Mac run logs ONE `CLOUD OPUS DISABLED`
+  banner (not N warnings), skips wasted grounding on every wall, and the walls get their
+  full budget on the local stages. **OPS: teacher/WM/arch stay dark until API credits
+  are topped up — that is now the single blocker on the 3 walls.**

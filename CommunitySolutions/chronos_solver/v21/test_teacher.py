@@ -231,6 +231,38 @@ def main():
                  T.OpusTeacher().solve_wall_iterative("ls20", "s", 2, [1],
                                                       lambda p: (True, ""), max_rounds=2) is None)
 
+    # --- billing-aware cloud latch (credit-exhausted 400 short-circuit) --------------
+    T._reset_cloud_latch()
+    ok &= _check("credit phrase detected",
+                 T._looks_credit_exhausted("HTTP 400 — Your credit balance is too low") is True)
+    ok &= _check("plans+billing phrase detected",
+                 T._looks_credit_exhausted("go to Plans & Billing to purchase") is True)
+    ok &= _check("normal error not credit-exhausted",
+                 T._looks_credit_exhausted("prompt is too long: 300000 > 200000") is False)
+    ok &= _check("None message tolerated", T._looks_credit_exhausted(None) is False)
+    # a transient/other error must NOT latch the cloud off
+    ok &= _check("non-billing error does not latch",
+                 T._note_cloud_error(ValueError("overloaded, retry")) is False
+                 and T.cloud_disabled() == "")
+    # a definitive billing error latches once and is remembered
+    ok &= _check("billing error latches",
+                 T._note_cloud_error("HTTP 400 — Your credit balance is too low") is True
+                 and "credit balance" in T.cloud_disabled().lower())
+    # once latched, available() flips False EVEN WITH a valid key, so all four cloud
+    # entrypoints skip cleanly (no wasted per-wall grounding prep, no network call)
+    os.environ["ANTHROPIC_API_KEY"] = "sk-test"
+    ok &= _check("latched -> not available despite key",
+                 T.OpusTeacher().available() is False)
+    tlatched = T.OpusTeacher()
+    tlatched._call = lambda s, u: (_ for _ in ()).throw(AssertionError("network hit while latched"))
+    ok &= _check("latched solve_wall no-ops without touching the network",
+                 tlatched.solve_wall("ls20", "src", 5, [1, 2, 3]) is None)
+    # reset (a fresh cadence process) restores availability -> auto-recovery on top-up
+    T._reset_cloud_latch()
+    ok &= _check("reset clears latch -> available again",
+                 T.cloud_disabled() == "" and T.OpusTeacher().available() is True)
+    os.environ.pop("ANTHROPIC_API_KEY", None)
+
     print("\n" + ("ALL TEACHER OFFLINE TESTS PASSED" if ok else "TEACHER TESTS FAILED"))
     return 0 if ok else 1
 
