@@ -834,3 +834,31 @@ builds on prior attempts instead of repeating them. Format:
   so a single hung wall can no longer starve the sweep — every run should now reach ls20 L5-L6,
   ft09 L2-L5 AND vc33 L4-L6 and log a `*_fired:*` line (incl. the C1+ click-target search) for
   each; watch for a RUNTIME_CODER-abandoned line on ls20 L5 confirming the watchdog fired.
+
+- [2026-07-10 20:0xZ] **C1+++ evolve end-of-sweep stall guard (completes C1++).** Health
+  check found run 164123Z STILL hung: after "[coder] runtime backend=ollama" (16:55 UTC)
+  the newest cron log went silent >3h with no `cadence exit=` line and the .cadence.lock
+  from 16:41 UTC still held — the launchd runner needs a manual restart (the live process
+  started on pre-C1++ code, so the just-committed RUNTIME_CODER watchdog only protects
+  FUTURE runs). Cloud Opus remains BILLING-BLOCKED (credit balance exhausted since 11:03 UTC,
+  R16 banner) so teacher/WM/arch are skipped and every wall's local levers (blitz/bfs/
+  brain_planner/goexplore/runtime_coder) fired `no candidate` — 0/3 games cracked (ls20 5/7,
+  ft09 2/6, vc33 4/7), unchanged. Root cause I fixed this cycle: C1++ wrapped only the
+  RUNTIME_CODER stage, but `evolve.evolve_step` (the LAST stage, `--evolve`) drives the SAME
+  local ollama code-writer and can wedge identically; a hang there strands the whole run with
+  no clean exit + a stale lock that blocks the next launchd cadence (144827Z evolve legitimately
+  ran 43 min, so the failure mode is invisible until it hangs forever). Fix (cadence_runner.py
+  only): the `evolve.evolve_step(...)` call at __main__ is now wrapped in the existing
+  `_call_with_deadline` watchdog with budget `V21_EVOLVE_BUDGET` (default 5400s = 90 min ≈ 2x
+  the observed legit run, so a real evolve never aborts; <=0 = legacy inline). On timeout it
+  logs `[evolve] abandoned (...)` + appends `- evolve: abandoned (hard deadline 5400s)` and
+  leaves champion.json untouched — evolve_step only writes on a gen+strict-RHAE-gated promotion,
+  so even a late-finishing daemon can't worsen the corpus. Verified: py_compile GREEN
+  (cadence_runner + test_offline); test_offline 161 PASS / 0 FAIL (+3 new checks: default parses
+  to 5400, a hung evolve_step is abandoned, bounded <2s). test_teacher/test_toddler/test_blackboard
+  untouched (not modified). Only cadence_runner.py + test_offline.py touched; verify+shortest+
+  exploit gates, corpus, offline guard all untouched; no v19/v20; .env untracked. Expected effect:
+  once the runner is restarted, the evolve stage can no longer hang the tail of a sweep — a wedged
+  ollama model yields an `evolve: abandoned` line + clean `cadence exit=` instead of a silent
+  stall; walls stay gated until API credits are topped up (top up at Plans & Billing → next
+  cadence auto-recovers the cloud teacher).

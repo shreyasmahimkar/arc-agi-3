@@ -1829,14 +1829,32 @@ def main():
                 walls_by_game.setdefault(w["game"], []).append(w)
             probe_fn = _make_evolve_probe(BFSSolver, args.bfs_timeout)
             eval_fn = evolve.config_aware_eval_fn(cur_rhae, walls_by_game, probe_fn)
-            champ, promoted = evolve.evolve_step(
-                os.path.join(HERE, "champion.json"),
-                os.path.join(LOGDIR, "evolution_history.jsonl"),
-                walls, cur_rhae, llm, eval_fn, games, heldout, n=4)
+            # C1+++ END-OF-SWEEP STALL GUARD: evolve_step drives the SAME local ollama
+            # code-writer that wedged run 164123Z's RUNTIME_CODER (fixed by C1++). But
+            # evolve is the LAST stage, and C1++ only wrapped RUNTIME_CODER — so if the
+            # evolve code-writer hangs, the run never logs a clean `cadence exit=` line
+            # and the stale .cadence.lock can block the next launchd cadence. Bound it
+            # with the same _call_with_deadline watchdog. Default 5400s = 90 min ≈ 2x
+            # the observed legit run (144827Z evolve ran 11:58→12:41 = 43 min on n=4
+            # challengers), so a real evolve never aborts while a truly wedged model
+            # can't strand the sweep. V21_EVOLVE_BUDGET<=0 restores the legacy inline
+            # call. On abandon champion.json is left untouched (no promotion this run),
+            # and evolve_step only ever writes on a gen+strict-RHAE-gated promotion, so
+            # even a late-finishing daemon thread cannot worsen the corpus.
+            _evo_budget = float(os.environ.get("V21_EVOLVE_BUDGET", "5400"))
+            champ, promoted = _call_with_deadline(
+                lambda: evolve.evolve_step(
+                    os.path.join(HERE, "champion.json"),
+                    os.path.join(LOGDIR, "evolution_history.jsonl"),
+                    walls, cur_rhae, llm, eval_fn, games, heldout, n=4),
+                _evo_budget)
             probe_note = "live-probe" if probe_fn else "corpus-floor"
             summary_lines.append(
                 f"- evolve: {'PROMOTED champion v'+str(champ.get('version')) if promoted else 'no promotion'} "
                 f"(backend={llm.name}, {len(walls)} wall levels targeted, eval={probe_note})")
+        except TimeoutError as e:
+            logger.warning("[evolve] abandoned (%s) — champion unchanged this run", e)
+            summary_lines.append(f"- evolve: abandoned (hard deadline {int(_evo_budget)}s)")
         except Exception as e:
             logger.warning("evolve step skipped: %s", e)
             summary_lines.append(f"- evolve: skipped ({e})")

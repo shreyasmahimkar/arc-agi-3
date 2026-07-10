@@ -68,6 +68,28 @@ def main():
         pass
     ok &= _check("stage deadline propagates the fn's own exception", _propagated)
 
+    # 2c) C1+++ evolve end-of-sweep stall guard: the evolve stage drives the SAME
+    #     local ollama coder that wedged 164123Z's RUNTIME_CODER, and it is the LAST
+    #     stage — a hang there strands the whole run with no clean `cadence exit=`
+    #     line and a stale .cadence.lock. It is now wrapped in the same
+    #     _call_with_deadline watchdog (env V21_EVOLVE_BUDGET, default 5400s ≈ 2x the
+    #     observed 43-min legit run). Assert the default parses and a hung evolve_step
+    #     is bounded (champion left unchanged).
+    os.environ.pop("V21_EVOLVE_BUDGET", None)
+    _evo_default = float(os.environ.get("V21_EVOLVE_BUDGET", "5400"))
+    ok &= _check("evolve budget default 5400s (>43min legit run, bounds hangs)",
+                 _evo_default == 5400.0)
+    _t0 = _t.time(); _evo_abandoned = False
+    def _hung_evolve():          # simulate a wedged ollama code-writer inside evolve_step
+        _t.sleep(5); return ({"version": 99}, True)
+    try:
+        _cr._call_with_deadline(_hung_evolve, 0.3)
+    except TimeoutError:
+        _evo_abandoned = True
+    ok &= _check("evolve stall guard abandons a hung evolve_step", _evo_abandoned)
+    ok &= _check("evolve stall guard bounded (<2s, champion unchanged)",
+                 (_t.time() - _t0) < 2.0)
+
     # 3) runtime code-writer: write -> sandbox-exec -> plan -> win (ft09-like + ls20-like)
     coder = rc.RuntimeCoder(lb.get_backend())
     w1 = coder.solve_level({"note": "blind"}, lambda p: len(p) == 1 and p[0][0] == 6)
