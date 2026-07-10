@@ -287,14 +287,48 @@ def _wm_methods():
     OpusTeacher.write_world_model = write_world_model
 
 
+# A line that plausibly begins real Python (module top-level). Used only as the
+# no-fence fallback to skip a leading prose preamble; conservative on purpose.
+_CODE_START = re.compile(
+    r"^\s*(?:import\s|from\s|class\s|def\s|async\s|@|#|'''|\"\"\"|"
+    r"if\s|for\s|while\s|try\s*:|with\s|return\s|[A-Za-z_][\w.]*\s*[:=([])"
+)
+
+
+def _drop_leading_prose(txt):
+    """Drop a leading natural-language preamble (Opus loves 'Here is the world
+    model:') up to the first line that looks like Python. Conservative: if no line
+    looks like code, return txt unchanged so exec fails and the safety net takes over
+    — never fabricates or reorders code."""
+    lines = txt.splitlines()
+    for i, ln in enumerate(lines):
+        if not ln.strip():
+            continue
+        if _CODE_START.match(ln):
+            return "\n".join(lines[i:]).strip()
+    return txt
+
+
 def _strip_module(raw):
+    """Extract runnable Python from an LLM reply. Opus/Qwen frequently wrap the WM in
+    a ```python fence AND/OR prepend a prose sentence — the old `startswith('```')`
+    gate missed both, so the prose/fence line reached compile() as
+    'invalid syntax (<world_model>, line 1)' (ft09 L2, every cadence). Now: (1) pull the
+    FIRST complete fenced block located ANYWHERE (leading prose tolerated); (2) tolerate
+    an opening fence the model never closed; (3) with no fence, strip a leading prose
+    preamble before the first real code line. Never fabricates — None only when empty."""
     if not raw:
         return None
     txt = raw.strip()
-    if txt.startswith("```"):
-        m = re.search(r"```(?:python)?\s*(.*?)```", txt, re.S)
-        if m:
-            txt = m.group(1).strip()
+    m = re.search(r"```(?:python|py)?[^\S\r\n]*\r?\n(.*?)```", txt, re.S | re.I)
+    if m:
+        txt = m.group(1).strip()
+    elif "```" in txt:
+        after = txt.split("```", 1)[1]
+        after = re.sub(r"^(?:python|py)?[^\S\r\n]*\r?\n", "", after, flags=re.I)
+        txt = after.rstrip("`").strip()
+    else:
+        txt = _drop_leading_prose(txt)
     return txt or None
 
 

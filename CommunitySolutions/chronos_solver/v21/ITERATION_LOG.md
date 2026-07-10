@@ -605,3 +605,25 @@ builds on prior attempts instead of repeating them. Format:
   a stuck lock in this sandbox, `mv` the lock aside (rm is EPERM); after any git commit, rename
   away leftover .git/index.lock + .git/HEAD.lock so the Mac's cadence commit isn't blocked.**
   Corpus + offline guard + verify/shortest/exploit gates untouched; no v19/v20; .env untracked.
+
+- [2026-07-10 02:05Z] **P1 walls — hardened `_strip_module` so the Opus WM code
+  actually EXECS instead of always falling to the safety net.** cron 011206Z AND 231705Z
+  both logged `ft09 L2 opus WM exec failed: invalid syntax (<world_model>, line 1)` /
+  `unterminated string literal (line 5)` — the WM fork was wasted every cadence. Root cause
+  in `brain/teacher._strip_module`: it only stripped a ``` fence when the reply *started*
+  with it (`txt.startswith("```")`), so when Opus prepends a prose sentence
+  ("Here is the world model:") or omits the closing fence, the prose/fence line reached
+  `rc._exec_world_model`'s `compile()` → syntax error on line 1. Fix: (1) regex-pull the
+  FIRST complete fenced block located ANYWHERE (leading prose tolerated); (2) tolerate an
+  opening fence the model never closed (take everything after it); (3) with no fence, drop a
+  leading natural-language preamble up to the first real code line via `_drop_leading_prose`
+  + `_CODE_START` (conservative — keeps a leading module docstring, and leaves text untouched
+  if no line looks like code, so a genuinely-broken model still hits the safety net; never
+  fabricates/reorders code). Verified: py_compile (teacher/test_teacher) + test_teacher GREEN
+  (+11 new `strip:` checks incl. an ast.parse-compiles assertion on the exact prose-wrapped
+  ft09 case) + test_offline 131 PASS + test_toddler + test_blackboard all green. Only
+  brain/teacher.py + test_teacher.py touched; corpus + offline guard + verify/shortest/exploit
+  gates + R14 grounding + both prior OPUS_WM safety nets untouched; no v19/v20; .env untracked.
+  Expected effect: next Mac cadence, ft09 L2 (and any prose-wrapped Opus WM) should log a real
+  built WorldModel + `candidate_plans()` attempt instead of a bare `exec failed` — the safety
+  net becomes the fallback it was meant to be, not the only path.

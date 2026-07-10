@@ -165,6 +165,34 @@ def main():
     ok &= _check("iterative threads state into every round",
                  len(rounds_seen) == 2 and all(STATE in u for u in rounds_seen))
 
+    # --- WM extraction robustness (_strip_module): the recurring ft09 L2 crash -------
+    # the exact failure: Opus prepends a prose sentence, so the OLD startswith('```')
+    # gate never fired and "Here is ..." reached compile() -> invalid syntax line 1.
+    body = "class WorldModel:\n    def __init__(self, obs):\n        self.obs = obs\n"
+    ok &= _check("strip: bare module passes through", T._strip_module(body).startswith("class WorldModel"))
+    ok &= _check("strip: prose + fenced block -> code only",
+                 T._strip_module("Here is the world model:\n```python\n" + body + "```") == body.strip())
+    ok &= _check("strip: prose (no fence) -> drops preamble",
+                 T._strip_module("Here is the world model:\n" + body) == body.strip())
+    ok &= _check("strip: unclosed fence -> code after opening fence",
+                 T._strip_module("```python\n" + body) == body.strip())
+    ok &= _check("strip: plain ``` fence (no lang) still extracts",
+                 T._strip_module("```\n" + body + "```") == body.strip())
+    ok &= _check("strip: fence anywhere ignores trailing prose",
+                 T._strip_module("Sure!\n```python\n" + body + "```\nHope that helps.") == body.strip())
+    ok &= _check("strip: leading module docstring kept (not dropped as prose)",
+                 T._strip_module('"""WM."""\n' + body).startswith('"""WM."""'))
+    ok &= _check("strip: empty -> None", T._strip_module("   ") is None)
+    ok &= _check("strip: None -> None", T._strip_module(None) is None)
+    # extracted code must actually compile (the whole point — no stray prose/fence line)
+    import ast as _ast
+    _extracted = T._strip_module("Here you go:\n```python\n" + body + "```")
+    try:
+        _ast.parse(_extracted); _compiles = True
+    except SyntaxError:
+        _compiles = False
+    ok &= _check("strip: extracted code compiles clean", _compiles)
+
     # no key -> no-op (offline guard preserved)
     os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("V21_OPUS_KEY", None)
     ok &= _check("iterative no-ops without a key",
