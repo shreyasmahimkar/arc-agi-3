@@ -971,6 +971,40 @@ def main():
     ok &= _check("probed grounding: falls back to static note when probe unavailable",
                  "(2,2)" in _fallback and "(4,3)" in _fallback)
 
+    # C1++++ PLANNER CLICK-CAP: run 164123Z showed ls20 L5 (keyboard tier) scanning
+    # clicks=32, inflating Go-Explore/macro-BFS branching 4->36 on the very walls the
+    # planners target. `_planner_click_cap` suppresses clicks for keyboard tiers while
+    # KEEPING them (unlimited) for the click/reflex tiers so C1+'s vc33 fix is intact.
+    ok &= _check("planner click-cap: keyboard tier (ls20) suppresses clicks -> 0",
+                 cr._planner_click_cap("ls20", env={}) == 0)
+    ok &= _check("planner click-cap: click tier (vc33) unlimited by default",
+                 cr._planner_click_cap("vc33", env={}) is None)
+    ok &= _check("planner click-cap: reflex/ACTION6 tier (ft09) keeps clicks",
+                 cr._planner_click_cap("ft09", env={}) is None)
+    ok &= _check("planner click-cap: explicit V21_PLANNER_CLICK_CAP overrides any tier",
+                 cr._planner_click_cap("ls20", env={"V21_PLANNER_CLICK_CAP": "8"}) == 8
+                 and cr._planner_click_cap("vc33", env={"V21_PLANNER_CLICK_CAP": "0"}) == 0)
+    ok &= _check("planner click-cap: unknown gid + junk override -> unlimited (no crash)",
+                 cr._planner_click_cap("zz99", env={"V21_PLANNER_CLICK_CAP": "x"}) is None)
+    #   the cap actually truncates: a stub solver scanning 32 ACTION6 clicks on a
+    #   keyboard game yields None (suppressed); with an explicit cap it truncates.
+    class _StubGame:
+        _available_actions = [1, 2, 3, 4, 5, 6]
+    class _StubSolver:
+        def _scan_actions(self, game, f0, bg):
+            return [(6, {"x": i, "y": 0}) for i in range(32)]
+    import numpy as _np
+    _sg, _ss, _f0 = _StubGame(), _StubSolver(), _np.zeros((8, 8), dtype=int)
+    ok &= _check("planner click-cap: ls20 scan of 32 clicks -> None (suppressed)",
+                 cr._scan_click_targets(_ss, _sg, _f0, "ls20") is None)
+    os.environ["V21_PLANNER_CLICK_CAP"] = "5"
+    try:
+        _trunc = cr._scan_click_targets(_ss, _sg, _f0, "ls20")
+    finally:
+        del os.environ["V21_PLANNER_CLICK_CAP"]
+    ok &= _check("planner click-cap: explicit cap=5 truncates 32 scanned clicks to 5",
+                 isinstance(_trunc, list) and len(_trunc) == 5)
+
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1
 

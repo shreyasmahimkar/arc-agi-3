@@ -307,7 +307,7 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # gated below. This is the ls20 L5–L6 frontier.
         if best is None and os.environ.get("V21_BRAIN_PLANNER", "0") in ("1", "true", "True"):
             try:
-                psol = _brain_planner_for_solver(solver, lvl)
+                psol = _brain_planner_for_solver(solver, lvl, gid)
             except Exception as e:
                 psol = None
                 logger.debug("[%s L%d] brain planner error: %s", gid, lvl, e)
@@ -326,7 +326,7 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # gated below. The ls20 L5–L6 lever, complementary to the Stage-3.4 planner.
         if best is None and os.environ.get("V21_GOEXPLORE", "0") in ("1", "true", "True"):
             try:
-                gsol = _goexplore_for_solver(solver, lvl, bb)
+                gsol = _goexplore_for_solver(solver, lvl, bb, gid)
             except Exception as e:
                 gsol = None
                 logger.debug("[%s L%d] go-explore error: %s", gid, lvl, e)
@@ -796,7 +796,32 @@ def _get_runtime_llm():
     return _RUNTIME_LLM
 
 
-def _scan_click_targets(solver, game, f0):
+def _planner_click_cap(gid, tier=None, env=None):
+    """Max ACTION6 click targets to feed the white-box planners (Go-Explore /
+    macro-BFS), or None for unlimited; 0 => suppress clicks entirely.
+
+    Branching-factor fix (C1++++): C1+ ADDED `_scan_click_targets` on the ASSUMPTION
+    it returns None on keyboard walls (ls20/ft09) — but run 164123Z showed ls20 L5
+    scanning `clicks=32`. Those 32 frame-changing-but-off-solution ACTION6 targets are
+    NOT the ls20 solution basis (BFS solves it with 4 simple actions), yet feeding them
+    to the planners inflates their branching factor from 4 -> 36, so Go-Explore /
+    macro-BFS reach ~9x fewer states in the same budget on exactly the ls20 L5-L6 walls
+    they were built to crack. Default: keyboard-tier games (ls20) get 0 clicks; the
+    click/reflex tiers (vc33 "orchestration/click", ft09 "reflex/ACTION6-blind") keep
+    the full set unchanged, so C1+'s vc33 fix is preserved. Override with an explicit
+    integer `V21_PLANNER_CLICK_CAP` (applies to every tier; <=0 disables clicks)."""
+    env = os.environ if env is None else env
+    tier = (TIER.get(gid, "") if tier is None else tier) or ""
+    raw = env.get("V21_PLANNER_CLICK_CAP")
+    if raw not in (None, ""):
+        try:
+            return max(0, int(raw))
+        except (TypeError, ValueError):
+            pass
+    return 0 if "keyboard" in tier.lower() else None
+
+
+def _scan_click_targets(solver, game, f0, gid=None):
     """Effective ACTION6 click-`data` targets for the white-box planners (C1+).
 
     Mirrors `blitz.blitz_for_solver`'s enumeration so Go-Explore / macro-BFS search
@@ -805,9 +830,15 @@ def _scan_click_targets(solver, game, f0):
     under `V21_BRAIN_PERCEPTION`. Without this the planners only try simple actions
     1-5 — inert on click-driven games (vc33 L4-L6), which is why run 144827Z showed
     GOEXPLORE/BRAIN_PLANNER 'no candidate' in <1s there while BLITZ had 30 targets.
-    Returns a list of `data` dicts, or None (no clicks / not a click game / error).
-    Pure w.r.t. persistent state — probes only forks / the passed start game."""
+    Click breadth is capped per `_planner_click_cap(gid)` so keyboard walls (ls20)
+    don't inflate the planner branching factor with off-solution clicks (C1++++).
+    Returns a list of `data` dicts, or None (no clicks / not a click game / capped
+    to 0 / error). Pure w.r.t. persistent state — probes only forks / the passed
+    start game."""
     import numpy as np
+    cap = _planner_click_cap(gid)
+    if cap == 0:                          # keyboard wall (or explicit override) — no clicks
+        return None
     raw_avail = list(getattr(game, "_available_actions", []) or [])
     if 6 not in raw_avail:
         return None
@@ -826,10 +857,12 @@ def _scan_click_targets(solver, game, f0):
             cts = merge_click_targets(cts, f0, True)
         except Exception:
             pass  # scan-only clicks on any error
+    if cap is not None and cts and len(cts) > cap:
+        cts = cts[:cap]
     return cts or None
 
 
-def _brain_planner_for_solver(solver, level_idx):
+def _brain_planner_for_solver(solver, level_idx, gid=None):
     """Stage-3.4: Go-Explore/macro-BFS (brain B3) over the engine as the trusted
     white-box model, from this level's re-rooted start. State = {'g':game,'f':frame}
     so we can hash the frame for dedup; macro edges collapse ls20's corridors.
@@ -872,8 +905,9 @@ def _brain_planner_for_solver(solver, level_idx):
         return hashlib.md5(fm.tobytes()).hexdigest()[:16]
 
     # C1+: feed click-driven walls (vc33) the same effective ACTION6 targets blitz
-    # uses; macro-BFS with only simple actions 1-5 is inert on click games.
-    click_targets = _scan_click_targets(solver, game, f0)
+    # uses; macro-BFS with only simple actions 1-5 is inert on click games. C1++++:
+    # gid lets _scan_click_targets suppress ls20's off-solution clicks (branching fix).
+    click_targets = _scan_click_targets(solver, game, f0, gid)
     start = {"g": game, "f": np.asarray(f0)}
     budget = int(os.environ.get("V21_PLANNER_STATES", "200000"))
     macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))
@@ -882,7 +916,7 @@ def _brain_planner_for_solver(solver, level_idx):
                                        max_macro=macro, click_targets=click_targets)
 
 
-def _goexplore_for_solver(solver, level_idx, bb=None):
+def _goexplore_for_solver(solver, level_idx, bb=None, gid=None):
     """Stage-3.45 (Epic C1): cell-archive Go-Explore over the engine as the trusted
     white-box model, from this level's re-rooted start. Same {'g','f'} state as the
     brain planner, but dedup is on a COARSE downsampled-frame cell (blackboard
@@ -948,7 +982,7 @@ def _goexplore_for_solver(solver, level_idx, bb=None):
     # candidate (run 144827Z: vc33 L4 GOEXPLORE no-candidate 0.2s while BLITZ had 30
     # click targets). Hand it the same effective ACTION6 targets blitz enumerates so
     # it can actually search click dynamics; None on keyboard walls (ls20/ft09).
-    click_targets = _scan_click_targets(solver, game, f0)
+    click_targets = _scan_click_targets(solver, game, f0, gid)
     start = {"g": game, "f": np.asarray(f0)}
     budget = int(os.environ.get("V21_PLANNER_STATES", "200000"))
     macro = int(os.environ.get("V21_PLANNER_MACRO", "64"))

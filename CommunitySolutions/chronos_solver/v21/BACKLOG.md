@@ -69,6 +69,14 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    RUNTIME_CODER call; env `V21_RUNTIME_CODER_BUDGET` (default 300s, <=0 = legacy inline).
    Timeout → `RUNTIME_CODER abandoned` note + move to next wall; corpus write stays main-thread
    post-verify (no daemon corruption). +5 offline `stage deadline` checks (158 PASS).
+   [C1++++ CLICK-CAP DONE 2026-07-10] Run 164123Z's diagnostic showed ls20 L5 BLITZ `clicks=32`:
+   C1+ fed those off-solution ACTION6 targets to the white-box planners too, inflating their
+   branching 4->36 on the ls20 walls (BFS solves ls20 with 4 simple actions). New pure
+   `_planner_click_cap(gid)` suppresses clicks for keyboard-tier games (ls20 -> 0) while keeping
+   them UNLIMITED for the click/reflex tiers (vc33/ft09, C1+ preserved); explicit int
+   `V21_PLANNER_CLICK_CAP` overrides any tier. `gid` threaded through both planner helpers.
+   +7 offline `planner click-cap:` checks (168 PASS). *Watch:* next Mac run's ls20 L5-L6
+   BRAIN_PLANNER/GOEXPLORE reach deeper on the tight 4-action basis.
    *Remaining (deepen the strongest):* now that the sweep reaches ALL walls, read the next Mac
    run's `*_fired:*` lines (incl. BLITZ breadth) on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6,
    pick the lever whose candidate gets closest to a win, and deepen it (e.g. raise

@@ -862,3 +862,31 @@ builds on prior attempts instead of repeating them. Format:
   ollama model yields an `evolve: abandoned` line + clean `cadence exit=` instead of a silent
   stall; walls stay gated until API credits are topped up (top up at Plans & Billing → next
   cadence auto-recovers the cloud teacher).
+
+- [2026-07-10 22:0xZ] **C1++++ keyboard-tier click-cap (branching-factor fix).** Health
+  check: run 164123Z STILL stranded — newest cron log silent since 16:55 UTC (>5h), the
+  16:41 UTC `.cadence.lock` still held by the pre-C1++ live process, so the launchd runner
+  needs a manual restart (`pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl
+  start com.chronos.v21.cadence`). Cloud Opus still BILLING-BLOCKED (R16). 0/3 games cracked
+  (ls20 5/7, ft09 2/6, vc33 4/7), unchanged. Root cause I fixed this cycle (from the 164123Z
+  diagnostic before it hung): C1+ added `_scan_click_targets` to the white-box planners on the
+  ASSUMPTION it returns None on keyboard walls — but the log shows ls20 L5 BLITZ `clicks=32`,
+  i.e. `_scan_actions` yields 32 frame-changing-but-off-solution ACTION6 targets on ls20. BFS
+  solves ls20 with 4 simple actions, but feeding those 32 clicks to `_brain_planner_for_solver`
+  / `_goexplore_for_solver` inflates their branching factor 4->36, so macro-BFS/Go-Explore reach
+  ~9x fewer states per 600s budget on exactly the ls20 L5-L6 walls they were built to crack. Fix
+  (cadence_runner.py only): new pure `_planner_click_cap(gid, tier, env)` — keyboard-tier games
+  (ls20 "reasoning/keyboard-maze") default to 0 clicks; the click/reflex tiers (vc33
+  "orchestration/click", ft09 "reflex/ACTION6-blind") stay UNLIMITED so C1+'s vc33 fix is
+  untouched; explicit int `V21_PLANNER_CLICK_CAP` overrides any tier (<=0 disables). `gid` is
+  now threaded through `_brain_planner_for_solver`/`_goexplore_for_solver` -> `_scan_click_targets`,
+  which caps/suppresses accordingly. Verified: py_compile GREEN (cadence_runner + test_offline);
+  test_offline 168 PASS / 0 FAIL (+7 `planner click-cap:` checks: keyboard->0, vc33/ft09->None,
+  explicit override, junk-override no-crash, ls20 32-scan suppressed, cap=5 truncates 32->5).
+  test_teacher/test_toddler/test_blackboard untouched (not modified). Only cadence_runner.py +
+  test_offline.py touched; verify+shortest+exploit gates, corpus, offline guard all untouched;
+  no v19/v20; .env untracked. Expected effect: once the runner is restarted, ls20 L5/L6
+  BRAIN_PLANNER + GOEXPLORE search a tight 4-action basis (no `clicks=NN` on ls20's BLITZ-adjacent
+  planner note) and should reach materially deeper — watch the next Mac run's ls20 L5-L6
+  `*_fired:*` lines for a closer near-miss or `levels_completed>=6`; vc33 L4-L6 click breadth
+  unchanged.
