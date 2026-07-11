@@ -10,6 +10,20 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
 (append-shorter only); one item per cycle unless trivial.
 
 ## P0 — unblock the loop (do first)
+0. **Runner stale-run self-heal.** [DONE 2026-07-10 — offline-verified] `run_cadence.sh`
+   pre-flight now reaps a `cadence_runner.py` older than `V21_STALE_SECS` (3h) and clears a
+   stranded `logs/.cadence.lock` so a hung stage no longer needs a MANUAL
+   `pkill+rm+launchctl start` (that class stalled the runner ~7h twice: 164123Z + the
+   08:53->14:48 gap). Live runs (flock-guarded) untouched. `test_reaper.sh` 7/7 PASS.
+   *Remaining:* a human still restarts the Mac ONCE to clear the current stall; then confirm
+   a future stage-hang auto-recovers on the next launchd tick.
+   [HEARTBEAT DONE 2026-07-10 — offline-verified] `run_cadence.sh` now writes epoch-stamped
+   `logs/.last_start` (on start) and `logs/.last_end` (on finish, with exit code) so the health
+   check reads liveness from one line instead of parsing cron_*.log names + converting local
+   mtimes to UTC. `.last_start` newer than `.last_end` by >~90m => hung/died mid-pass;
+   `.last_start` older than the launchd interval => scheduler not ticking. test_reaper.sh 8/8.
+   *Note:* the 02:01 UTC stall was launchd NOT ticking (16:41 cadence SIGKILLed, no live proc) —
+   the reaper only fires on a tick, so a dead scheduler still needs one manual restart.
 1. **P2 config-aware evolve evaluator.** [CODED + offline-verified — live probe env-gated]
    `evolve.config_aware_eval_fn` scores corpus-floor + wall RHAE under the challenger's config;
    `cadence_runner._make_evolve_probe` applies `blitz_K`→BFS budget on the real engine.

@@ -53,6 +53,41 @@ LOG="logs/cron_${STAMP}.log"
 
 echo "[$STAMP] starting cadence (budget=${BUDGET}s, model=$V21_OLLAMA_MODEL)" | tee -a "$LOG"
 
+# --- run heartbeat (ops observability) ----------------------------------------
+# One-line epoch stamps the health-check reads directly, so it no longer has to
+# parse cron_*.log filenames + convert sandbox-local mtimes to UTC to judge liveness.
+# `.last_start` newer than `.last_end` by more than a real pass (~90m) => a run is
+# hung or its process died mid-pass; `.last_start` itself older than the launchd
+# interval => launchd is not ticking. Best-effort; never fails the run.
+printf '%s %s\n' "$(date -u +%s)" "$STAMP" > logs/.last_start 2>/dev/null || true
+
+# --- stale-run self-heal (ops) ------------------------------------------------
+# A prior cadence that HUNG inside a stage (e.g. run 164123Z's RUNTIME_CODER/evolve
+# tail) keeps its process alive, so its fcntl.flock on logs/.cadence.lock is never
+# released and the lock FILE lingers. Every later launchd tick then either blocks on
+# the flock or the loop's memory prescribes a MANUAL `pkill -f cadence_runner && rm
+# -f logs/.cadence.lock && launchctl start ...` (see ITERATION_LOG 164123Z). That has
+# now idled the runner for multi-hour windows twice. Auto-recover instead: reap any
+# cadence_runner.py older than a ceiling that no legitimate full pass ever reaches
+# (~20 levels x 600s + toddler train/evolve is <~90m), then clear the stale lock file
+# so the fresh flock below starts clean. A LEGIT in-flight run (etimes < ceiling) is
+# left untouched and its live flock still correctly rejects this double-start.
+STALE_SECS="${V21_STALE_SECS:-10800}"   # 3h; >> a real pass, << an overnight idle gap
+for _pid in $(pgrep -f "cadence_runner.py" 2>/dev/null); do
+  [ "$_pid" = "$$" ] && continue
+  _et="$(ps -o etimes= -p "$_pid" 2>/dev/null | tr -d ' ')"
+  case "$_et" in ''|*[!0-9]*) continue;; esac        # skip if age unreadable
+  if [ "$_et" -gt "$STALE_SECS" ]; then
+    echo "[preflight] reaping hung cadence pid=$_pid (etimes=${_et}s > ${STALE_SECS}s)" | tee -a "$LOG"
+    kill -9 "$_pid" 2>/dev/null || true
+  fi
+done
+if ! pgrep -f "cadence_runner.py" >/dev/null 2>&1; then
+  # no live cadence holds the flock -> a lingering lock file is stale; clear it.
+  [ -e logs/.cadence.lock ] && echo "[preflight] clearing stale logs/.cadence.lock" | tee -a "$LOG"
+  rm -f logs/.cadence.lock 2>/dev/null || true
+fi
+
 # start Ollama if installed and not already serving (ignore failure -> mock fallback)
 if command -v ollama >/dev/null 2>&1; then
   curl -s --max-time 2 http://localhost:11434/api/tags >/dev/null 2>&1 || (ollama serve >>"$LOG" 2>&1 &)
@@ -73,6 +108,7 @@ fi
 # keep the Mac awake for the duration of the run, then run the cadence
 caffeinate -i "$PY" cadence_runner.py --bfs-timeout "$BUDGET" --evolve --allow-network >>"$LOG" 2>&1
 RC=$?
+printf '%s %s exit=%s\n' "$(date -u +%s)" "$(date -u +%Y%m%dT%H%M%SZ)" "$RC" > logs/.last_end 2>/dev/null || true
 echo "[$(date -u +%Y%m%dT%H%M%SZ)] cadence exit=$RC" | tee -a "$LOG"
 # keep only the last 30 cron logs
 ls -1t logs/cron_*.log 2>/dev/null | tail -n +31 | xargs rm -f 2>/dev/null || true

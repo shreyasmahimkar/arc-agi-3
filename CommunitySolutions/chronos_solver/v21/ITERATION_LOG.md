@@ -890,3 +890,57 @@ builds on prior attempts instead of repeating them. Format:
   planner note) and should reach materially deeper — watch the next Mac run's ls20 L5-L6
   `*_fired:*` lines for a closer near-miss or `levels_completed>=6`; vc33 L4-L6 click breadth
   unchanged.
+
+- 2026-07-10 ~20:00 EDT / 00:00 UTC (health-check cycle, Opus 4.8). RUNNER STALLED: no new
+  cron log for ~7h — last run 164123Z started 16:41 UTC, exited=0 at ~16:55 UTC (its cron log
+  tail stops at `ls20 L5 toddler harvest`, no wall summary). This is the SECOND multi-hour
+  idle window this class of stall has cost the loop (the 08:53->14:48 UTC gap was the first).
+  The prior cycle's own note prescribes a MANUAL `pkill -f cadence_runner && rm -f
+  logs/.cadence.lock && launchctl start com.chronos.v21.cadence` — i.e. a human is in the
+  critical path every time a stage hangs and strands the flock/lock. Fixed the *class* this
+  cycle so launchd self-recovers: **run_cadence.sh** now has a pre-flight stale-run self-heal
+  block (right after the `starting cadence` echo, before the Ollama preflight). It reaps any
+  `cadence_runner.py` whose `ps -o etimes=` exceeds `V21_STALE_SECS` (default 10800s = 3h, far
+  above a real ~90m full pass and far below an overnight idle gap), then — only if NO
+  cadence_runner is still alive — clears a lingering `logs/.cadence.lock`. A legitimately
+  in-flight run (etimes < ceiling) is untouched and its live `fcntl.flock` still correctly
+  rejects this double-start (the existing `main()` guard returns 0). Env override
+  `V21_STALE_SECS`. Non-numeric/unreadable ages are skipped (no accidental kills). Verified:
+  `bash -n run_cadence.sh` GREEN; new **test_reaper.sh** 7/7 PASS (parses; stale-lock-cleared;
+  hung-cadence-reaped; lock-cleared-after-reap; fresh-cadence-spared; lock-kept-while-live) —
+  the block is extracted to a temp file so the `cadence_runner.py` pattern stays off the
+  harness cmdline (pgrep self-match caught+fixed during dev, as was the `V21_STALE_SECS` vs
+  `STALE_SECS` env-name mismatch); `python3 test_offline.py` 168 PASS / 0 FAIL (unchanged —
+  no Python touched); `py_compile cadence_runner.py` GREEN. Only run_cadence.sh + new
+  test_reaper.sh touched; no v19/v20; .env untracked. Cloud Opus still BILLING-BLOCKED (R16),
+  0/3 games cracked (ls20 5/7, ft09 2/6, vc33 4/7) — unchanged; RHAE 1.000 across all three.
+  Expected effect: the NEXT launchd tick after any future stage-hang auto-clears the stale
+  lock and starts a clean pass — no more human-in-the-loop restarts; watch a fresh cron_*.log
+  appear on schedule (a `[preflight] reaping hung cadence` / `clearing stale lock` line marks a
+  self-heal). NOTE: this run itself cannot restart the Mac — a human still needs the manual
+  restart ONCE to recover the current 7h stall; the fix prevents the NEXT one.
+
+- 2026-07-10 ~22:00 EDT / 02:01 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED:
+  last cron log 164123Z (started 16:41 UTC) stopped growing 16:55 UTC at `ls20 L5 toddler
+  harvest`; no cron log and no `cadence exit=` in ~9h; `.cadence.lock` stranded; launchd.err
+  shows the 16:41 cadence was `Killed: 9` (SIGKILL). No live cadence_runner exists, so this is
+  launchd NOT ticking (Mac asleep/off or job unloaded) — the prior cycle's reaper only fires ON
+  a tick, so it can't self-recover a dead scheduler. A human still needs ONE manual `pkill -f
+  cadence_runner && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`.
+  Also found the prior cycle's reaper work (run_cadence.sh + test_reaper.sh + BACKLOG/ITERATION_LOG)
+  was left UNCOMMITTED — a stale `.git/index.lock` (18:14, no live git) blocked its git_safe_commit;
+  committing it now (git_safe_commit clears the stale lock). Cloud Opus still BILLING-BLOCKED
+  (R16) — walls data-blocked (last complete run 144827Z: every local lever `fired: no candidate`,
+  no candidate emitted). Coded this cycle (P0 ops-observability, safe/offline-verifiable):
+  **run_cadence.sh** now writes epoch-stamped `logs/.last_start` on start and `logs/.last_end`
+  (with exit code) on finish, so the 2-hourly health check reads liveness from one line instead
+  of parsing cron_*.log names + converting sandbox-local mtimes to UTC (this cycle's exact toil).
+  `.last_start` newer than `.last_end` by >~90m => hung/died mid-pass; `.last_start` older than the
+  launchd interval => scheduler not ticking. Best-effort writes (`|| true`), never fail the run.
+  Verified: `bash -n run_cadence.sh`/`test_reaper.sh` GREEN; **test_reaper.sh** 8/8 (added a
+  heartbeat format check); `python3 test_offline.py` 168 PASS / 0 FAIL (unchanged — no Python
+  touched). Only run_cadence.sh + test_reaper.sh touched (+ this log + BACKLOG tick); no v19/v20;
+  .env untracked. 0/3 games cracked (ls20 5/7, ft09 2/6, vc33 4/7) — unchanged; RHAE 1.000 all
+  three. Expected effect: next Mac run drops `.last_start`/`.last_end`; the next health check
+  judges the runner from those two files. NOTE: this run cannot restart the Mac — the current
+  stall needs the manual restart once; the heartbeat only makes the NEXT stall faster to spot.
