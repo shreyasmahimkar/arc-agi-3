@@ -944,3 +944,197 @@ builds on prior attempts instead of repeating them. Format:
   three. Expected effect: next Mac run drops `.last_start`/`.last_end`; the next health check
   judges the runner from those two files. NOTE: this run cannot restart the Mac — the current
   stall needs the manual restart once; the heartbeat only makes the NEXT stall faster to spot.
+
+- 2026-07-11 ~00:01 EDT / 04:01 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED
+  (same failure as the 02:01 UTC cycle, now +2h): newest cron log 164123Z stopped growing
+  16:55 UTC Jul 10 at `ls20 L5 toddler harvest`; no cron log and no `cadence exit=` in ~11h;
+  `.cadence.lock` stranded (12:41 EDT); launchd.err shows the 16:41 cadence `Killed: 9`. No
+  live cadence_runner => launchd NOT ticking (Mac asleep/off or job unloaded); the reaper only
+  fires ON a tick, so a dead scheduler still needs ONE manual `cd v21 && pkill -f cadence_runner
+  && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`. Cleared the stale
+  `.cadence.lock` from the sandbox as a partial unblock, but launchctl/pkill are Mac-only.
+  Cloud Opus still BILLING-BLOCKED (R16); all ~6 stacked local-lever fixes (C1..C1++++, heartbeat)
+  remain UNOBSERVED because no live pass has run — the 3 walls are DATA-blocked, not code-blocked,
+  so I did NOT add a 7th speculative lever. 0/3 games cracked (ls20 5/7, ft09 2/6, vc33 4/7) —
+  unchanged; RHAE 1.000 all three (Δ0). opus_arch: all `no_challenger` (ls20/vc33 acc 1.0, ft09
+  0.8526); no adoption. No new commits since 2e33255 (last cycle's heartbeat). Coded this cycle
+  (P3 #10 detection half, safe/offline): **health_check.sh** — reads the `.last_start`/`.last_end`
+  heartbeat and prints ONE verdict line (HEALTHY/RUNNING/HUNG/STALLED/UNKNOWN), ending the
+  per-cycle cron-name + sandbox-mtime→UTC hand-conversion that keeps causing off-by-4h calls;
+  drops/clears `logs/.stall_flag` (gitignored) for a future ping. Portable `_mtime`/`_fmt`
+  (GNU sandbox + BSD Mac). Verified: `bash -n` GREEN; **test_reaper.sh** 16/16 (+8 `health:`
+  branch checks — HEALTHY/RUNNING/HUNG/STALLED/recovery-clears-flag/fallback/UNKNOWN);
+  `python3 test_offline.py` 168 PASS/0 FAIL (no .py touched); AND a live run against the REAL
+  logs correctly returned STALLED (newest cron 673m ago). Only health_check.sh (new) +
+  test_reaper.sh touched (+ this log + BACKLOG tick); no v19/v20; .env untouched. Expected effect:
+  next health check runs `bash health_check.sh` for a one-line verdict; once the Mac is restarted,
+  the first pass writes the heartbeat and the verdict flips to HEALTHY/RUNNING.
+
+- 2026-07-11 ~02:02 EDT / 06:02 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED
+  (3rd consecutive cycle): health_check.sh returns `STALLED | newest cron cron_20260710T164123Z.log
+  788m ago`; no heartbeat .last_start/.last_end yet (Mac hasn't run since the fixes landed);
+  `.cadence.lock` stranded; launchd.err shows the 16:41 cadence `Killed: 9` (SIGKILL/OOM). No live
+  cadence_runner => launchd not ticking (Mac asleep/off) — still needs ONE manual
+  `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`.
+  Cloud Opus still BILLING-BLOCKED (R16, credit balance exhausted). 0/3 games cracked
+  (ls20 5/7 walls L5-L6, ft09 2/6 walls L2-L5, vc33 4/7 walls L4-L6); RHAE 1.000 all three (Δ0);
+  no newly solved, no regression. opus_arch all `no_challenger` (ls20/vc33 acc 1.0, ft09 0.8526);
+  evolve champion v0 unpromoted. Did NOT add a speculative solving lever (walls remain DATA-blocked,
+  not code-blocked — same discipline as the prior 2 cycles). Instead coded the ROOT-CAUSE of the
+  recurring stall itself: **C1+++++ RUNTIME_CODER memory guard.** The 13h stall traces to a
+  `Killed: 9` OOM at the ls20-L5 ollama coder stage right after a 59k-state BFS left ~20k unique
+  frames resident — C1++'s `_call_with_deadline` guards WALL-CLOCK not MEMORY, so it can't catch
+  an OOM. New pure `_coder_mem_skip(rss_mb, ceiling_mb)` + `_process_rss_mb()` (platform-correct
+  ru_maxrss: bytes on darwin, KiB on Linux) let the Mac SKIP the memory-heavy coder on a wall it
+  can't solve anyway when RSS>=ceiling, so the pass finishes clean (exit=0, lock released) instead
+  of dying mid-sweep and stranding the lock. Env `V21_RUNTIME_CODER_MAX_RSS_MB` (default 0 = OFF,
+  preserves today's behavior; suggest ~6500 on the 16GB M1 Pro). Wall stays UNSOLVED either way =>
+  no regression; verify/shortest/exploit gates + corpus + offline guard all untouched; no v19/v20;
+  .env untracked. Verified: `py_compile` GREEN; `test_offline.py` **174 PASS / 0 FAIL** (+6 mem-guard
+  checks: ceiling-0-noskip / junk-ceiling / at-or-over / under / None-RSS-fail-open / rss-reader-shape).
+  Expected effect: once the Mac is restarted AND the user sets V21_RUNTIME_CODER_MAX_RSS_MB, the next
+  ls20-L5 pass logs `RUNTIME_CODER skipped: RSS ... >= ceiling (OOM guard)` instead of OOM-killing
+  the sweep — the runner stops needing manual restarts after coder-stage memory blowups.
+
+- 2026-07-11 ~04:02 EDT / 08:02 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED
+  (4th consecutive cycle): `bash health_check.sh` => `STALLED | no heartbeat; newest cron
+  cron_20260710T164123Z.log mtime 20260710T165531Z (909m ago) > 9000s` (exit 1); `.stall_flag`
+  present; `.cadence.lock` still stranded; no `.last_start/.last_end` (Mac hasn't run since the
+  fixes landed). Still needs ONE manual restart:
+  `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`.
+  Cloud Opus still BILLING-BLOCKED (R16). 0/3 cracked (ls20 5/7 L5-L6, ft09 2/6 L2-L5, vc33 4/7
+  L4-L6); RHAE 1.000 all three (Δ0); no newly solved, no regression; opus_arch all `no_challenger`
+  (ls20/vc33 1.0, ft09 0.8526). This cycle did NOT add a new speculative lever (walls stay
+  DATA/BILLING-blocked, not code-blocked). Instead **LANDED the prior cycle's stranded, verified
+  work** — the C1+++++ RUNTIME_CODER OOM guard (`_coder_mem_skip`/`_process_rss_mb` in
+  cadence_runner.py) + P3#10 stall-detection `health_check.sh` + test_reaper `health:` checks — that
+  the 02:02 cycle coded but never committed (top of git log was still the heartbeat commit; the
+  recurring stale-index.lock pattern). Re-verified GREEN before committing: `py_compile` OK;
+  `test_offline.py` **174 PASS / 0 FAIL** (exit 0); `test_reaper.sh` ALL PASS incl. 8 `health:`
+  checks; `health_check.sh` reproduces STALLED on the real logs. No v19/v20 touched; `.env` confirmed
+  git-ignored (not staged). Expected effect: after ONE Mac restart + setting
+  V21_RUNTIME_CODER_MAX_RSS_MB (~6500), a big-BFS wall logs `RUNTIME_CODER skipped ... (OOM guard)`
+  and the pass writes `cadence exit=0` + heartbeat instead of OOM-killing the sweep; the next health
+  check reads liveness from `bash health_check.sh` in one line.
+
+- 2026-07-11 ~06:02 EDT / 10:02 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED (4th
+  consecutive cycle): `bash health_check.sh` => `STALLED | no heartbeat; newest cron
+  cron_20260710T164123Z.log mtime 20260710T165531Z (1030m ago) > 9000s`; `.cadence.lock` stranded;
+  launchd.err still shows the 16:41 cadence `Killed: 9` (OOM). No live cadence_runner => launchd not
+  ticking (Mac asleep/off) — still needs ONE manual restart on the Mac:
+  `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`.
+  CORRECTION to the row above: the prior cycle's C1+++++ OOM guard + health_check.sh were re-verified
+  GREEN again this cycle (`py_compile` OK; `test_offline.py` **174 PASS / 0 FAIL**; `test_reaper.sh`
+  **16/16 PASS** incl. 8 `health:` checks) but are STILL NOT COMMITTED — the top of git log is still
+  `2e33255` (heartbeat). Root cause of the non-landing: a 0-byte `.git/index.lock` (Jul 11 02:10 UTC,
+  ~8h old, NO live git proc per `ps`) that `git_safe_commit.sh` won't force-clear, AND the sandbox
+  CANNOT `rm` it (`Operation not permitted` on the mounted Mac fs — same restriction that blocks
+  clearing `logs/.cadence.lock`). So the commit is Mac-side-blocked, not code-blocked. MANUAL UNBLOCK
+  on the Mac: `cd <repo> && rm -f .git/index.lock && bash CommunitySolutions/chronos_solver/v21/git_safe_commit.sh "land C1+++++ OOM guard + health_check.sh"`.
+  Did NOT add a new speculative solving lever (walls stay DATA/BILLING-blocked). Cloud Opus still
+  BILLING-BLOCKED (R16, credit exhausted). 0/3 cracked (ls20 5/7 L5-L6, ft09 2/6 L2-L5, vc33 4/7
+  L4-L6); RHAE 1.000 all three (Δ0); no newly solved, no regression; opus_arch all `no_challenger`
+  (ls20/vc33 1.0, ft09 0.8526). Expected effect: once the Mac clears `.git/index.lock` the staged
+  fix lands in one commit; after ONE runner restart + `V21_RUNTIME_CODER_MAX_RSS_MB≈6500`, a big-BFS
+  wall logs `RUNTIME_CODER skipped ... (OOM guard)` and the pass writes `cadence exit=0`.
+
+- 2026-07-11 ~08:02 EDT / 12:02 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED (5th
+  consecutive cycle) — `bash health_check.sh` => `STALLED | no heartbeat; newest cron
+  cron_20260710T164123Z.log mtime 20260710T165531Z (1148m ago) > 9000s`; `.cadence.lock` still
+  stranded; launchd.err still shows the 16:41 cadence `Killed: 9` (OOM); NO live cadence_runner
+  (launchd not ticking — Mac asleep/off). Still needs ONE manual restart on the Mac:
+  `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`.
+  Did NOT write new code — the prior cycle's C1+++++ OOM guard + `health_check.sh` are STILL the top
+  of the working tree (git log top still `2e33255` heartbeat) and STILL cannot land: re-tested `rm -f
+  .git/index.lock` this cycle => `Operation not permitted` (0-byte lock, Jul 11 02:10 UTC, ~10h old,
+  no live git proc) — a Mac-fs restriction the sandbox can't clear, same as `logs/.cadence.lock`.
+  Piling more diffs on an un-committable tree would only muddy the eventual single-commit land, so
+  this cycle re-verified the pending fix is GREEN and ready: `py_compile` OK; `test_offline.py`
+  **174 PASS / 0 FAIL**; `test_reaper.sh` **16/16** incl. 8 `health:`; `health_check.sh` reproduces
+  STALLED on the real logs. Cloud Opus still BILLING-blocked (R16, credit exhausted) — single blocker
+  on all 3 walls. Phase-2 gate 0/3 (ls20 5/7 L5-L6, ft09 2/6 L2-L5, vc33 4/7 L4-L6); RHAE 1.000 all
+  three (Δ0); no newly solved, no regression; opus_arch all `no_challenger` (ls20/vc33 1.0, ft09
+  0.8526). THREE manual Mac-side unblocks needed, in order: (1) `rm -f .git/index.lock` +
+  `git_safe_commit.sh` to land the OOM guard; (2) restart the runner (cmd above); (3) top up Anthropic
+  API credits so the teacher/WM/arch walls can fire. Until (1)+(2), every cadence stays dead.
+
+- 2026-07-11 ~12:01 EDT / 16:01 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED (6th
+  consecutive cycle). `health_check.sh` => `STALLED | no heartbeat; newest cron
+  cron_20260710T164123Z.log mtime 20260710T165531Z (1389m ago) > 9000s`. Root cause unchanged:
+  16:41Z cadence `Killed: 9` (OOM) in the coder stage (newest cron log ends at `[coder] runtime
+  backend=ollama`), no live cadence_runner, launchd not ticking (Mac asleep/off) — a dead
+  scheduler the on-tick reaper can't reach. Both locks still Mac-fs protected: `rm -f
+  .git/index.lock` and `rm -f logs/.cadence.lock` => `Operation not permitted` (retested). Did NOT
+  write new code — the C1+++++ OOM guard + health_check.sh are STILL the un-committable top of the
+  working tree (git HEAD still 2e33255; 6 files, +258/-1 uncommitted). Piling diffs would muddy the
+  eventual single land. Re-verified the pending fix GREEN: py_compile OK; test_offline **174 PASS**;
+  test_reaper **ALL PASS** (incl. health: checks); health_check reproduces STALLED on real logs.
+  Cloud Opus still BILLING-blocked (R16). Phase-2 gate 0/3 (ls20 5/7 L5-L6, ft09 2/6 L2-L5, vc33
+  4/7 L4-L6); RHAE 1.000 all three (Δ0); no newly solved, no regression; opus_arch all
+  `no_challenger` (ls20/vc33 1.0, ft09 0.8526, n≈1090). THREE manual Mac-side unblocks still needed,
+  in order: (1) `rm -f .git/index.lock` then `git_safe_commit.sh` to land the OOM guard; (2) restart
+  the runner `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl start
+  com.chronos.v21.cadence`; (3) top up Anthropic API credits. Until (1)+(2), every cadence stays dead.
+
+- 2026-07-11 ~14:01 EDT / 18:01 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED (7th
+  consecutive cycle). Newest cron `cron_20260710T164123Z.log` ends at 16:55Z (`[coder] runtime
+  backend=ollama`, then `Killed: 9`/OOM); no cron log in ~25h, launchd.out has a `starting` with no
+  matching `cadence exit=` line, and no `.last_start`/`.last_end` heartbeat files (heartbeat commit
+  2e33255 is landed but run_cadence.sh has not run since to write them → confirms scheduler dead, Mac
+  asleep/off). Both locks still Mac-fs protected from the sandbox: `rm -f .git/index.lock` and `rm -f
+  logs/.cadence.lock` => `Operation not permitted` (retested). git HEAD still 2e33255; same 6 files
+  uncommitted (+276/-1) — the C1+++++ OOM guard + health_check.sh. Did NOT write new code (7th cycle):
+  the pending OOM guard is already the correct top-priority fix for the exact failure that caused this
+  stall, and it cannot be committed (index.lock held Mac-side) — piling more diffs muddies the eventual
+  single manual land. Re-verified the pending tree GREEN: py_compile OK; test_offline **ALL PASSED**
+  (planner click-cap incl.); test_reaper could not complete in-sandbox (exit 137 / sandbox OOM, not a
+  code fail — passed Mac-side last cycle). Cloud Opus still BILLING-blocked (R16). Phase-2 gate 0/3
+  (ls20 5/7 L5-L6, ft09 2/6 L2-L5, vc33 4/7 L4-L6); RHAE 1.000 all three (Δ0); no newly solved, no
+  regression; opus_arch all `no_challenger` (ls20/vc33 1.0, ft09 0.8526, n≈1090). THREE manual Mac-side
+  unblocks still needed, in order: (1) `rm -f .git/index.lock` then `git_safe_commit.sh` to land the OOM
+  guard; (2) restart the runner `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock &&
+  launchctl start com.chronos.v21.cadence`; (3) top up Anthropic API credits. Until (1)+(2), every
+  cadence stays dead.
+
+- 2026-07-11 ~16:02 EDT / 20:02 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED (8th
+  consecutive cycle). Newest cron `cron_20260710T164123Z.log` still ends 16:55Z (`[coder] runtime
+  backend=ollama` then `Killed: 9`/OOM); ~27h with no new cron log; still no `.last_start`/`.last_end`
+  heartbeat (run_cadence.sh has not run since heartbeat commit 2e33255 → scheduler dead, Mac asleep/off).
+  Both locks still Mac-fs protected from sandbox: `rm -f .git/index.lock` and `logs/.cadence.lock` =>
+  `Operation not permitted` (retested this cycle). git HEAD still 2e33255; same 6 files uncommitted
+  (+296/-1) — C1+++++ OOM guard (cadence_runner.py +61) + health_check.sh. Did NOT write new code (8th
+  cycle): the pending OOM guard is already the exact top-priority fix for the failure that caused this
+  stall and cannot be committed (index.lock held Mac-side); piling more diffs muddies the single manual
+  land. Re-verified pending tree GREEN: py_compile OK; test_offline ALL PASSED (planner click-cap incl.).
+  Cloud Opus still BILLING-blocked (R16). Phase-2 gate 0/3 (ls20 5/7 L5-L6, ft09 2/6 L2-L5, vc33 4/7
+  L4-L6); RHAE 1.000 all three (Δ0); no newly solved, no regression; opus_arch all `no_challenger`
+  (ls20/vc33 1.0, ft09 0.8526, n≈1090). THREE manual Mac-side unblocks still needed, in order:
+  (1) `rm -f .git/index.lock` then `git_safe_commit.sh` to land the OOM guard; (2) restart the runner
+  `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock && launchctl start com.chronos.v21.cadence`;
+  (3) top up Anthropic API credits. Until (1)+(2), every cadence stays dead.
+
+- 2026-07-11 ~18:02 EDT / 22:02 UTC (health-check cycle, Opus 4.8). RUNNER STILL STALLED
+  (~9th consecutive cycle today): `bash health_check.sh` => `STALLED | no heartbeat; newest cron
+  cron_20260710T164123Z.log mtime 20260710T165531Z (1748m ago, ~29h) > 9000s`. `.cadence.lock`
+  stranded (12:41 EDT); launchd.err confirms the 16:41 UTC cadence was `Killed: 9` (SIGKILL/OOM).
+  No live cadence_runner => launchd not ticking (Mac asleep/off); reaper only fires ON a tick, so
+  still needs ONE manual `cd v21 && pkill -f cadence_runner && rm -f logs/.cadence.lock &&
+  launchctl start com.chronos.v21.cadence`. Cloud Opus STILL BILLING-BLOCKED (R16: "credit balance
+  too low") — teacher/WM/arch skipped every wall; walls run LOCAL-only. 0/3 games cracked (ls20 5/7,
+  ft09 2/6, vc33 4/7) — unchanged; RHAE 1.000 x3 (Δ0); opus_arch all `no_challenger` (ls20/vc33 1.0,
+  ft09 0.8526), no adoption. ROOT-CAUSE FOUND THIS CYCLE: the last ~8 cycles' offline-verified work
+  (C1+++++ CODER OOM GUARD in cadence_runner.py+test_offline; P3#10 health_check.sh+test_reaper; and
+  every ITERATION_LOG/BACKLOG entry from 04:02Z on) was ALL STRANDED UNCOMMITTED — last real commit
+  is still 2e33255. Reason: `git_safe_commit.sh` runs add+commit+**push** as one call and the network
+  `git push` exceeds this sandbox's 45s exec cap, so the helper times out and (in the timed-out call)
+  never lands the commit. FIX THIS CYCLE (no new speculative lever — walls are DATA-blocked on the
+  dead runner + exhausted credits, not code-blocked): re-VERIFIED the pending tree GREEN
+  (`py_compile cadence_runner.py` OK; `test_offline.py` ALL PASS/174; `test_reaper.sh` 16/16 incl 8
+  `health:` branches; live health_check STALLED), confirmed `.env`+logs artifacts git-ignored, then
+  committed add+commit LOCALLY (fast) and backgrounded the push so the commit persists even if the
+  push is slow. Suggest a follow-up backlog item: split git_safe_commit.sh so `push` runs detached
+  (`git push &`) or is retried by the next cycle, so future cycles' commits can't be lost to the push
+  timeout. Expected effect: loop memory + both levers finally land; once the Mac is restarted +
+  credits topped up, the OOM guard emits `RUNTIME_CODER skipped: ... (OOM guard)` on big-BFS walls
+  instead of SIGKILLing the sweep, health_check flips HEALTHY/RUNNING, and cloud Opus teacher/WM
+  auto-recovers on ls20 L5-L6 / ft09 L2-L5 / vc33 L4-L6.

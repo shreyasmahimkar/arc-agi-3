@@ -18,6 +18,10 @@
 # Schedule: cron "0 */4 * * *"  (see REQUIREMENTS.md R6.2)
 # =====================================================================
 import argparse, glob, json, logging, os, re, socket, sys, time, fcntl
+try:
+    import resource as _resource  # stdlib on macOS/Linux; used only for RSS read
+except Exception:  # pragma: no cover — non-POSIX; memory guard degrades to inert
+    _resource = None
 from datetime import datetime, timezone
 import blitz  # Stage-0 cheap-win pre-pass (BACKLOG #2); pure, no engine deps
 
@@ -351,7 +355,20 @@ def solve_game(gid, bfs_timeout, BFSSolver):
         # any winner is still verified + shortest-gated below. OFF by default (loads
         # a local model / adds wall-clock); opt-in via env V21_RUNTIME_CODER=1.
         if best is None and os.environ.get("V21_RUNTIME_CODER", "0") in ("1", "true", "True"):
-            llm = _get_runtime_llm()
+            # C1+++++ memory guard: skip the memory-heavy ollama coder when the
+            # process already holds a large resident set (post-big-BFS), so we
+            # don't repeat run 164123Z's OOM `Killed: 9` that ended the whole
+            # pass mid-sweep and stranded the lock. Off unless the ceiling env is
+            # set. Wall stays UNSOLVED either way; the sweep survives to exit=0.
+            _rc_rss = _process_rss_mb()
+            if _coder_mem_skip(_rc_rss, os.environ.get("V21_RUNTIME_CODER_MAX_RSS_MB", "0")):
+                logger.info("[%s L%d] RUNTIME_CODER skipped: RSS %.0fMB >= ceiling "
+                            "%sMB (OOM guard) — leaving wall UNSOLVED, sweep continues",
+                            gid, lvl, _rc_rss or 0.0,
+                            os.environ.get("V21_RUNTIME_CODER_MAX_RSS_MB"))
+                llm = None
+            else:
+                llm = _get_runtime_llm()
             if llm is not None:
                 try:
                     _rc_budget = float(os.environ.get("V21_RUNTIME_CODER_BUDGET", "300"))
@@ -778,6 +795,48 @@ def _call_with_deadline(fn, deadline):
     if "e" in box:
         raise box["e"]
     return box.get("r")
+
+
+def _process_rss_mb():
+    """Current process resident-set size in MB, or None if unavailable.
+    `ru_maxrss` is BYTES on macOS/BSD but KILOBYTES on Linux — normalize by
+    platform so the same ceiling means the same thing on the Mac (where the
+    cadence runs) and in the Linux offline sandbox."""
+    if _resource is None:
+        return None
+    try:
+        rss = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
+    except Exception:
+        return None
+    if rss <= 0:
+        return None
+    # macOS/BSD report bytes; Linux reports KiB.
+    return float(rss) / (1024.0 * 1024.0) if sys.platform == "darwin" else float(rss) / 1024.0
+
+
+def _coder_mem_skip(rss_mb, ceiling_mb):
+    """Pure predicate: should the memory-heavy RUNTIME_CODER (ollama) stage be
+    SKIPPED because the process already holds a large resident set?
+
+    Motivated by run 164123Z: ls20 L5's coder stage was `Killed: 9` (SIGKILL /
+    OOM) right after a 59k-state BFS left ~20k unique frames resident — loading
+    the local code model on top tipped the Mac into an OOM kill that ended the
+    WHOLE pass mid-sweep, stranding `.cadence.lock` and stalling the runner ~13h.
+    C1++'s `_call_with_deadline` guards WALL-CLOCK, not MEMORY, so it can't catch
+    this. Skipping the coder on a wall it already couldn't solve keeps that wall
+    UNSOLVED either way (no regression) but lets the pass finish cleanly (exit=0,
+    lock released) and lets the remaining games' walls get their turn.
+
+    OFF by default: ceiling_mb<=0 => never skip (preserves current behavior).
+    Opt-in via env V21_RUNTIME_CODER_MAX_RSS_MB=<n> (suggest ~40% of the Mac's
+    RAM, e.g. 6500 on a 16GB M1 Pro)."""
+    try:
+        ceiling = float(ceiling_mb)
+    except (TypeError, ValueError):
+        return False
+    if ceiling <= 0 or rss_mb is None:
+        return False
+    return float(rss_mb) >= ceiling
 
 
 def _get_runtime_llm():

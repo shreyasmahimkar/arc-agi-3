@@ -68,6 +68,29 @@ def main():
         pass
     ok &= _check("stage deadline propagates the fn's own exception", _propagated)
 
+    # 2b-oom) C1+++++ RUNTIME_CODER memory guard: _call_with_deadline caps wall-CLOCK
+    #     but run 164123Z's coder was `Killed: 9` (OOM) after a 59k-state BFS left a
+    #     large resident set — a MEMORY kill the time watchdog can't catch. The pure
+    #     _coder_mem_skip predicate lets the Mac skip the memory-heavy ollama coder on
+    #     a wall it can't solve anyway when RSS already exceeds a ceiling, so the pass
+    #     finishes clean (exit=0, lock released) instead of dying mid-sweep. Default
+    #     OFF (ceiling<=0) preserves current behavior.
+    ok &= _check("coder mem-guard: ceiling 0 (default) never skips",
+                 _cr._coder_mem_skip(9999.0, 0) is False)
+    ok &= _check("coder mem-guard: negative/blank/junk ceiling never skips",
+                 _cr._coder_mem_skip(9999.0, -1) is False
+                 and _cr._coder_mem_skip(9999.0, "") is False
+                 and _cr._coder_mem_skip(9999.0, "x") is False)
+    ok &= _check("coder mem-guard: RSS at/over ceiling -> skip",
+                 _cr._coder_mem_skip(6500.0, 6500) is True
+                 and _cr._coder_mem_skip(8000.0, "6500") is True)
+    ok &= _check("coder mem-guard: RSS under ceiling -> run",
+                 _cr._coder_mem_skip(3000.0, 6500) is False)
+    ok &= _check("coder mem-guard: unknown RSS (None) never skips (fail-open)",
+                 _cr._coder_mem_skip(None, 6500) is False)
+    ok &= _check("coder mem-guard: _process_rss_mb returns a positive float or None",
+                 (lambda r: r is None or (isinstance(r, float) and r > 0))(_cr._process_rss_mb()))
+
     # 2c) C1+++ evolve end-of-sweep stall guard: the evolve stage drives the SAME
     #     local ollama coder that wedged 164123Z's RUNTIME_CODER, and it is the LAST
     #     stage — a hang there strands the whole run with no clean `cadence exit=`

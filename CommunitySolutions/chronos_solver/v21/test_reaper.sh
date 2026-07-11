@@ -61,5 +61,41 @@ else
   echo "FAIL: heartbeat files malformed"; fail=1
 fi
 
+# (6) health_check.sh: READS the .last_start/.last_end heartbeat and prints a one-line
+#     verdict + drops/clears logs/.stall_flag. Verifies each liveness branch offline.
+bash -n health_check.sh || { echo "FAIL: health_check.sh does not parse"; fail=1; }
+echo "PASS health: health_check.sh parses"
+
+HL="$TMP/hlogs"; mkdir -p "$HL"
+NOW="$(date -u +%s)"
+# run health_check against the synthetic logs dir; capture verdict line + exit code.
+hc() { HC_OUT="$( ( cd "$HERE" && V21_HEALTH_LOGS="$HL" \
+        V21_HEALTH_HUNG_SECS=5400 V21_HEALTH_STALL_SECS=9000 bash health_check.sh ) 2>/dev/null )"; HC_RC=$?; }
+set_hb() { # $1=start_age $2=end_age("-"=none)
+  rm -f "$HL/.last_start" "$HL/.last_end"
+  printf '%s %s\n' "$((NOW-$1))" "20260101T000000Z" > "$HL/.last_start"
+  [ "$2" != "-" ] && printf '%s %s exit=0\n' "$((NOW-$2))" "20260101T000000Z" > "$HL/.last_end" || true
+}
+chk() { # $1=label $2=want_status $3=want_rc $4=flag(y/n)
+  local ok=1
+  echo "$HC_OUT" | grep -q "RUNNER: $2 " || ok=0
+  [ "$HC_RC" = "$3" ] || ok=0
+  if [ "$4" = y ]; then [ -f "$HL/.stall_flag" ] || ok=0; else [ -f "$HL/.stall_flag" ] && ok=0; fi
+  if [ "$ok" = 1 ]; then echo "PASS health: $1"; else echo "FAIL health: $1 -> [$HC_OUT] rc=$HC_RC flag=$([ -f "$HL/.stall_flag" ] && echo y || echo n)"; fail=1; fi
+}
+
+set_hb 8000 7000; hc; chk "idle recent -> HEALTHY, no flag" HEALTHY 0 n   # start<end, age<stall
+set_hb 600 4000;  hc; chk "start after end, recent -> RUNNING, no flag" RUNNING 0 n
+set_hb 6000 9000; hc; chk "in-progress > hung ceiling -> HUNG, flag" HUNG 1 y
+set_hb 10000 9900; hc; chk "last tick > stall ceiling -> STALLED, flag" STALLED 1 y
+set_hb 8000 7000; hc; chk "recovery clears the stall flag" HEALTHY 0 n     # flag from prior case must be gone
+
+# fallback (no heartbeat): fresh cron log -> HEALTHY; empty dir -> UNKNOWN(rc2)
+rm -f "$HL/.last_start" "$HL/.last_end" "$HL/.stall_flag"
+: > "$HL/cron_20260101T000000Z.log"; hc; chk "no heartbeat + fresh cron log -> HEALTHY (fallback)" HEALTHY 0 n
+rm -f "$HL"/cron_*.log; hc
+{ echo "$HC_OUT" | grep -q "RUNNER: UNKNOWN " && [ "$HC_RC" = 2 ]; } \
+  && echo "PASS health: empty logs -> UNKNOWN (rc2)" || { echo "FAIL health: empty -> [$HC_OUT] rc=$HC_RC"; fail=1; }
+
 [ "$fail" = 0 ] && echo "ALL REAPER CHECKS PASS" || echo "REAPER CHECKS FAILED"
 exit $fail

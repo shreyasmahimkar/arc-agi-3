@@ -91,6 +91,17 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    `V21_PLANNER_CLICK_CAP` overrides any tier. `gid` threaded through both planner helpers.
    +7 offline `planner click-cap:` checks (168 PASS). *Watch:* next Mac run's ls20 L5-L6
    BRAIN_PLANNER/GOEXPLORE reach deeper on the tight 4-action basis.
+   [C1+++++ CODER OOM GUARD DONE 2026-07-11 — offline-verified] Root-caused the recurring
+   ~13h stall: run 164123Z's coder stage was `Killed: 9` (SIGKILL/OOM) on ls20 L5 right after
+   a 59k-state BFS left ~20k unique frames resident — the OOM ended the WHOLE pass mid-sweep and
+   stranded `.cadence.lock`. C1++'s `_call_with_deadline` guards WALL-CLOCK, not MEMORY. New pure
+   `_coder_mem_skip(rss_mb, ceiling_mb)` + `_process_rss_mb()` (platform-correct ru_maxrss: bytes
+   on darwin / KiB on Linux) SKIP the memory-heavy ollama coder when RSS>=ceiling so the pass
+   exits clean (lock released) instead of OOM-killing the sweep. Env `V21_RUNTIME_CODER_MAX_RSS_MB`
+   (default 0 = OFF; suggest ~6500 on the 16GB M1 Pro). Wall stays UNSOLVED either way (no
+   regression). +6 offline `coder mem-guard:` checks (174 PASS). *Remaining:* set the ceiling env
+   on the Mac + confirm a future big-BFS wall logs `RUNTIME_CODER skipped: ... (OOM guard)` and the
+   pass writes `cadence exit=0` instead of dying.
    *Remaining (deepen the strongest):* now that the sweep reaches ALL walls, read the next Mac
    run's `*_fired:*` lines (incl. BLITZ breadth) on ls20 L5–L6 / ft09 L2–L5 / vc33 L4–L6,
    pick the lever whose candidate gets closest to a win, and deepen it (e.g. raise
@@ -168,6 +179,19 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
 
 ## P3 — infra / submission
 10. **Stall alarm.** Reporter pings if no cron_*.log in 8h.
+    [DETECTION DONE 2026-07-11 — offline-verified] `health_check.sh` reads last cycle's
+    `logs/.last_start`/`.last_end` heartbeat and prints ONE verdict line
+    (`RUNNER: HEALTHY|RUNNING|HUNG|STALLED|UNKNOWN | detail`), replacing the per-cycle
+    cron-name + sandbox-mtime→UTC hand-conversion that has produced off-by-4h judgements.
+    Branches: start-after-end within 90m = RUNNING; start-after-end > `V21_HEALTH_HUNG_SECS`
+    (5400s) = HUNG (died/SIGKILLed mid-pass); last tick > `V21_HEALTH_STALL_SECS` (9000s) =
+    STALLED (launchd not ticking); no heartbeat = cron-mtime fallback; empty = UNKNOWN.
+    Drops `logs/.stall_flag` (reason+epoch, gitignored) when stalled/hung and clears it when
+    healthy — the one file a future *ping* half can act on. Pure/offline; exit 0/1/2.
+    `test_reaper.sh` +8 `health:` checks (16/16 PASS). Validated on the real logs this cycle:
+    correctly returned STALLED (newest cron 673m ago). *Remaining:* the PING side — have the
+    reporter/an alarm consume `.stall_flag` (or wire a launchd `WatchPaths`/`StartInterval`
+    that isn't blocked by the same dead scheduler).
 11. **Kaggle offline notebook.** Bundle Qwen2.5-Coder as a dataset, `HF_HUB_OFFLINE=1`, embed
     agent+engine+cache; verify it runs network-off on a T4.
 12. **Config-aware `MyAgent` load** of `champion.json` (blitz_K/action_order/heuristics).
