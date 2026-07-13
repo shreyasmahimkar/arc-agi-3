@@ -30,7 +30,11 @@ V21=CommunitySolutions/chronos_solver/v21
 SIDE_REF=refs/heads/v21-auto-sync
 
 _git_running() { pgrep -fl '[g]it (commit|add|rebase|merge|push|pull)' >/dev/null 2>&1; }
-_locked() { [ -e .git/index.lock ] || [ -e .git/HEAD.lock ]; }
+# A commit can be blocked by the top-level index/HEAD locks OR by a REF lock left
+# under refs/ by a crashed/interrupted commit (e.g. refs/heads/main.lock — the
+# "cannot lock ref 'HEAD'" block observed Jul 13). Detect and sweep both.
+_reflocks() { find .git/refs -name '*.lock' -type f 2>/dev/null; }
+_locked() { [ -e .git/index.lock ] || [ -e .git/HEAD.lock ] || [ -n "$(_reflocks)" ]; }
 
 # Commit v21/ working-tree state WITHOUT touching .git/index or needing HEAD.lock.
 # Build the tree in a private index, then commit-tree + update-ref. Falls back to a
@@ -68,10 +72,12 @@ for _ in $(seq 1 72); do
   break
 done
 
-# a lock with NO git process behind it is stale -> try to remove it
+# a lock with NO git process behind it is stale -> try to remove it (top-level AND
+# ref locks, so a stranded refs/heads/main.lock no longer blocks the commit)
 if _locked && ! _git_running; then
-  echo "clearing stale git lock(s)"
+  echo "clearing stale git lock(s): $(ls .git/*.lock 2>/dev/null; _reflocks | tr '\n' ' ')"
   rm -f .git/index.lock .git/HEAD.lock .git/*.lock 2>/dev/null
+  _reflocks | while read -r l; do rm -f "$l" 2>/dev/null; done
 fi
 
 # Use the plumbing path when forced, or when a stale lock survived removal because
