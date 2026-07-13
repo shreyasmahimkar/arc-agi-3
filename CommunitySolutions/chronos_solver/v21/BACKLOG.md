@@ -24,6 +24,35 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    `.last_start` older than the launchd interval => scheduler not ticking. test_reaper.sh 8/8.
    *Note:* the 02:01 UTC stall was launchd NOT ticking (16:41 cadence SIGKILLed, no live proc) —
    the reaper only fires on a tick, so a dead scheduler still needs one manual restart.
+   [COMMIT-HELPER HARDENED 2026-07-11 — offline-verified] `git_safe_commit.sh` no longer loses
+   commits to the THREE failure modes that stranded ~9 cycles of verified work (Jul 9-11):
+   (a) the network `git push` now runs **DETACHED** (`( git push … ) &`) so add+commit always
+   land within the caller's exec cap even when the push is slow/blocked (the ~45s sandbox cap
+   used to time out the whole call and drop the commit); (b) when `.git/index.lock` is present
+   but un-removable (mounted `.git` EPERM in the sandbox), it commits via **PLUMBING** through a
+   private `GIT_INDEX_FILE` (read-tree HEAD → `add -A -- v21` → write-tree → commit-tree →
+   update-ref), never touching `.git/index`; (c) when `.git/HEAD.lock` is ALSO un-removable
+   (a prior interrupted `git commit` left one — this defeats even `update-ref HEAD`, since
+   moving the checked-out branch needs HEAD.lock), it lands the commit on a **SIDE ref**
+   `refs/heads/v21-auto-sync` (fresh, creatable lock) and prints the one-line fast-forward the
+   Mac runs after the stale lock clears (`git update-ref refs/heads/main <sha>`). Modes (b)+(c)
+   automate by hand-free code the GIT_INDEX_FILE + plumbing recovery the last three cycles did
+   manually. Env: `V21_FORCE_ALT_INDEX=1` forces plumbing, `V21_FORCE_SIDE_REF=1` forces the
+   side ref, `V21_NO_PUSH=1` skips push (all for the test). New `test_git_safe_commit.sh` builds
+   a throwaway repo and covers all three paths + no-op + detached-push contract: **11/11 PASS**.
+   test_offline 174 + test_reaper 16/16 still green. *This cycle's own commit landed on
+   `refs/heads/v21-auto-sync` — the Mac must `git update-ref refs/heads/main <sha> && git push`
+   (or just fast-forward) after restart clears the stale HEAD.lock/index.lock.*
+   [ONE-COMMAND RECOVERY DONE 2026-07-12 — offline-verified] `resume_loop.sh` collapses the
+   whole recurring recovery (reap hung `cadence_runner` -> clear `.cadence.lock` -> clear only
+   genuinely-stale git locks, age+live-git guarded -> **fast-forward `main` to `v21-auto-sync`
+   iff it is a strict ancestor & the tree is clean** -> push -> `launchctl start
+   com.chronos.v21.cadence`) into `bash resume_loop.sh`. Never merge-commits/resets/clobbers a
+   dirty tree; `DRY_RUN=1` previews. New `test_resume_loop.sh` 10/10 (ff/idempotent/diverged/
+   dirty/stale-lock/DRY_RUN/no-side-ref). A DRY_RUN vs the REAL repo found SIX stranded locks
+   (index/HEAD/packed-refs/main/v21-auto-sync/v21-scratch-probe) & `main` 17 behind `v21-auto-sync`.
+   *Remaining:* the human runs it ONCE on the Mac after a restart to relight the loop + land the
+   17 stranded commits.
 1. **P2 config-aware evolve evaluator.** [CODED + offline-verified — live probe env-gated]
    `evolve.config_aware_eval_fn` scores corpus-floor + wall RHAE under the challenger's config;
    `cadence_runner._make_evolve_probe` applies `blitz_K`→BFS budget on the real engine.
@@ -132,6 +161,15 @@ Rules the coder follows: edit only under `v21/`; never touch `v19/`/`v20/`; alwa
    L4-end-state suffix-BFS seed or the R13 Opus teacher.
 5. **ft09 L2–L5.** Investigate mechanics (these aren't blind like L0); deepen BFS/graph budget,
    add object-aware click targets. *Done when:* ≥1 of L2–L5 solved+verified.
+   [ADAPTIVE TODDLER EPOCHS DONE 2026-07-12 — offline-verified, cloud-free] ft09's world model is
+   the loop's single weakest measured component (opus_arch champion_acc=0.8526 vs ls20/vc33=1.0),
+   and BRAIN_PLANNER/GOEXPLORE plan AGAINST that WM on ft09's 4 walls. `brain/toddler_net`
+   `last_champion_acc(game)` (reads newest champion_acc off `opus_arch.jsonl`, no cloud) +
+   `adaptive_epochs(acc)` (ft09 0.8526→14 epochs, 1.0→8, None→8=today) now drive the
+   `cadence_runner` toddler-train loop (`train(epochs=adaptive_epochs(last_champion_acc(gid)))`).
+   +11 offline checks (187 PASS) incl. a source-introspection wire guard. *Remaining for the win:*
+   a Mac cadence where ft09's deeper-trained WM lifts champion_acc→~1.0 and a white-box planner then
+   solves ≥1 of L2–L5 against the now-trustworthy model.
    [TEACHER-GROUNDING CODED + offline-verified 2026-07-09] The Opus teacher's FIRST-round prompt
    now carries the level-start valid ACTION6 click targets (B1 perception centroids) via
    `_teacher_click_note` in `_opus_teacher_for_solver`, env `V21_TEACHER_GROUND` (=1 in
@@ -343,7 +381,16 @@ R7. **Workspace optimization: evolve the persistent substrate, not the weights**
     coder previously failed is not re-tried down the same dead end (counterexample recall), or a
     challenger promotes on equal-RHAE-but-fewer-actions.
     [CODED + offline-verified 2026-07-09] R7(a) DONE: `_counterex_open/_counterex_notes/_counterex_record` in cadence_runner persist each FAILED Opus-teacher plan as a blackboard dead_end and feed prior-run dead_ends back as a 'do NOT repeat' note (`_opus_teacher_for_solver` notes + `_try_plan`); env `V21_WORKSPACE_COUNTEREX` (exported =1). +8 offline checks.
-    [R7(b) DONE 2026-07-10] Action-frugality tie-break landed in `evolve.evolve_step` (optional `cost_fn=None`): at EQUAL held-out RHAE a challenger solving the walls in STRICTLY fewer env-actions promotes (`PROMOTE(frugal)`), preserving the generalization + strict-RHAE gates. Companion `evolve.config_aware_cost_fn(walls, probe_fn, miss_penalty)` totals same-probe env-actions (unsolved walls charged a penalty), degrading to 0.0 offline so nothing promotes on noise. +5 offline `frugality:` checks (150 PASS). *Remaining:* on the Mac, wire `cadence_runner._make_evolve_probe` into `config_aware_cost_fn` and pass it as `evolve_step(cost_fn=...)`. *Also remaining (unchanged):* a Mac cadence where the teacher avoids last run's ls20 L5 near-miss.
+    [R7(b) DONE 2026-07-10] Action-frugality tie-break landed in `evolve.evolve_step` (optional `cost_fn=None`): at EQUAL held-out RHAE a challenger solving the walls in STRICTLY fewer env-actions promotes (`PROMOTE(frugal)`), preserving the generalization + strict-RHAE gates. Companion `evolve.config_aware_cost_fn(walls, probe_fn, miss_penalty)` totals same-probe env-actions (unsolved walls charged a penalty), degrading to 0.0 offline so nothing promotes on noise. +5 offline `frugality:` checks (150 PASS).
+    [WIRED 2026-07-12 — offline-verified] `cadence_runner.main` now builds `cost_fn =
+    evolve.config_aware_cost_fn(walls_by_game, probe_fn)` (the SAME live wall probe as the eval)
+    and passes `cost_fn=cost_fn` into the `evolve_step` call, so a challenger that TIES held-out
+    RHAE but solves the walls in fewer env-actions PROMOTES(frugal) on the Mac. Degrades inert
+    offline (probe_fn None -> cost 0.0 for every config -> frugal branch can't fire); gen +
+    strict-RHAE gates untouched. +2 offline `frugality wire:` source-introspection checks (176
+    PASS) guard the wiring against removal. *Remaining:* a Mac cadence with `V21_EVOLVE_PROBE=1`
+    where a cheaper equal-RHAE challenger logs `PROMOTE(frugal)`. *Also remaining (unchanged):* a
+    Mac cadence where the teacher avoids last run's ls20 L5 near-miss.
 R8. **Perception is the real bottleneck — feed the coder a symbolic scene description, not raw grids**
     (CMU/UMich/UCSD/UIUC, arXiv:2512.21329, "Your Reasoning Benchmark May Not Test Reasoning:
     Revealing Perception Bottleneck in Abstract Reasoning Benchmarks"; abs

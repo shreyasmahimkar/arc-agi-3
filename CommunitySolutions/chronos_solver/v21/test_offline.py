@@ -362,6 +362,16 @@ def main():
     _cf0 = evolve.config_aware_cost_fn(walls_fr, probe_fn=None)
     ok &= _check("frugality: cost_fn no-probe -> 0.0 (tie-break inert offline)",
                  _cf0({"action_order": [6]}, ["ft09"]) == 0.0)
+    #   (d.wire) R7(b) "Remaining": the frugality tie-break is only live if cadence_runner
+    #   actually builds a cost_fn from config_aware_cost_fn AND passes it to evolve_step.
+    #   Source-introspect the runner so removing the wiring (regressing to the strict-RHAE-
+    #   only path) fails offline — mirrors how the eval_fn wiring is trusted at the call site.
+    import inspect, cadence_runner as _cr
+    _cr_src = inspect.getsource(_cr.main)
+    ok &= _check("frugality wire: cadence_runner builds cost_fn from config_aware_cost_fn",
+                 "config_aware_cost_fn(walls_by_game, probe_fn)" in _cr_src)
+    ok &= _check("frugality wire: cadence_runner passes cost_fn into evolve_step",
+                 "cost_fn=cost_fn" in _cr_src)
     def _miss_probe(config, gid, lvl):
         return None                               # wall unsolved -> miss penalty
     _cf1 = evolve.config_aware_cost_fn(walls_fr, probe_fn=_miss_probe, miss_penalty=99.0)
@@ -1027,6 +1037,46 @@ def main():
         del os.environ["V21_PLANNER_CLICK_CAP"]
     ok &= _check("planner click-cap: explicit cap=5 truncates 32 scanned clicks to 5",
                  isinstance(_trunc, list) and len(_trunc) == 5)
+
+    # ---- toddler adaptive-epochs (train the weakest world models harder) ----------
+    #   adaptive_epochs scales training up as held-out champion_acc drops below floor,
+    #   with an IDENTICAL-TO-TODAY base when the signal is absent (no regression).
+    import brain.toddler_net as _tn
+    ok &= _check("toddler adaptive: unknown acc (None) -> base epochs (unchanged behavior)",
+                 _tn.adaptive_epochs(None) == 8)
+    ok &= _check("toddler adaptive: well-fit game acc=1.0 -> base epochs (no over-training)",
+                 _tn.adaptive_epochs(1.0) == 8)
+    ok &= _check("toddler adaptive: acc at floor 0.98 -> base epochs",
+                 _tn.adaptive_epochs(0.98) == 8)
+    ok &= _check("toddler adaptive: ft09 acc=0.8526 trains DEEPER than base",
+                 _tn.adaptive_epochs(0.8526) > 8)
+    ok &= _check("toddler adaptive: weaker acc -> more epochs (monotone)",
+                 _tn.adaptive_epochs(0.90) <= _tn.adaptive_epochs(0.80))
+    ok &= _check("toddler adaptive: pathological acc=0.0 clamped at cap=20",
+                 _tn.adaptive_epochs(0.0) == 20)
+    ok &= _check("toddler adaptive: junk acc handled (no crash) -> base",
+                 _tn.adaptive_epochs("x") == 8)
+    #   last_champion_acc reads the NEWEST champion_acc per game from an audit trail
+    #   (offline; persists while cloud Opus is billing-dark). Missing file -> None.
+    import tempfile as _tf, json as _json
+    _ap = os.path.join(_tf.gettempdir(), "v21_test_opus_arch.jsonl")
+    with open(_ap, "w") as _f:
+        _f.write(_json.dumps({"game": "ft09", "champion_acc": 0.80}) + "\n")
+        _f.write(_json.dumps({"game": "ls20", "champion_acc": 1.0}) + "\n")
+        _f.write(_json.dumps({"game": "ft09", "champion_acc": 0.8526}) + "\n")  # newer
+        _f.write("{ not json\n")  # tolerated
+    ok &= _check("toddler adaptive: last_champion_acc returns the NEWEST match",
+                 _tn.last_champion_acc("ft09", path=_ap) == 0.8526)
+    ok &= _check("toddler adaptive: last_champion_acc unknown game -> None",
+                 _tn.last_champion_acc("zz99", path=_ap) is None)
+    ok &= _check("toddler adaptive: last_champion_acc missing file -> None (no crash)",
+                 _tn.last_champion_acc("ft09", path=_ap + ".nope") is None)
+    #   the wiring is present in cadence_runner (guards a coded-but-unwired regression).
+    import inspect as _inspect, cadence_runner as _cr
+    _src = _inspect.getsource(_cr)
+    ok &= _check("toddler adaptive wire: cadence_runner calls train(epochs=adaptive_epochs(...))",
+                 "adaptive_epochs" in _src and "last_champion_acc" in _src
+                 and "train(epochs=_ep)" in _src)
 
     print("\n" + ("ALL OFFLINE TESTS PASSED" if ok else "OFFLINE TESTS FAILED"))
     return 0 if ok else 1

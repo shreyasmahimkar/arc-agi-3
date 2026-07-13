@@ -36,6 +36,52 @@ def _audit(rec):
             f.write(json.dumps({"t": int(time.time()), **rec}) + "\n")
     except Exception:
         pass
+
+
+def last_champion_acc(game, path=None):
+    """Most-recent held-out world-model accuracy for `game` from the opus_arch audit
+    trail (champion_acc), or None if unknown. Pure/offline — the accuracy is written
+    every run by opus_arch_step's own evaluate_build (no cloud needed for the READ;
+    the value persists on disk even while cloud Opus is billing-blocked). Never raises."""
+    p = path or _AUDIT
+    acc = None
+    try:
+        with open(p) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("game") == game and isinstance(rec.get("champion_acc"), (int, float)):
+                    acc = float(rec["champion_acc"])   # keep the LAST (newest) match
+    except Exception:
+        return None
+    return acc
+
+
+def adaptive_epochs(acc, base=8, cap=20, floor_acc=0.98, gain=48):
+    """Train the WEAKEST games harder. Returns training epochs scaled up as held-out
+    world-model accuracy `acc` falls below `floor_acc`; a well-fit game (acc>=floor)
+    or an unknown one (acc is None) gets exactly `base` — so behavior is IDENTICAL to
+    today wherever we lack a signal (no regression). Directly targets ft09's stuck
+    champion_acc=0.8526 (vs ls20/vc33=1.0) without any cloud call. Deterministic/pure."""
+    try:
+        base = int(base); cap = int(cap)
+    except Exception:
+        return 8
+    if acc is None:
+        return base
+    try:
+        deficit = max(0.0, float(floor_acc) - float(acc))
+    except Exception:
+        return base
+    extra = int(round(deficit * float(gain)))
+    return int(min(cap, max(base, base + extra)))
+
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _DIR = os.environ.get("V21_TODDLER_DIR", os.path.join(_HERE, "toddler"))
 ALL_ACTIONS = [1, 2, 3, 4, 5, 6, 7]

@@ -1866,11 +1866,18 @@ def main():
     # logged reason if torch/data are missing (never blocks the run).
     if os.environ.get("V21_TODDLER_NET", "0") in ("1", "true", "True"):
         try:
-            from brain.toddler_net import ToddlerNet
+            from brain.toddler_net import ToddlerNet, last_champion_acc, adaptive_epochs
             for gid in games:
-                status = ToddlerNet(gid).train()
-                logger.info("[%s] toddler_net train: %s", gid, status)
-                summary_lines.append(f"- toddler_net[{gid}]: {status}")
+                # Train the WEAKEST world models harder: read the game's last held-out
+                # champion_acc (opus_arch audit, persists on disk with no cloud call) and
+                # scale epochs up when it's below floor. ft09 (0.8526) trains deeper than
+                # ls20/vc33 (1.0). Unknown acc -> base epochs = today's behavior exactly.
+                _acc = last_champion_acc(gid)
+                _ep = adaptive_epochs(_acc)
+                status = ToddlerNet(gid).train(epochs=_ep)
+                logger.info("[%s] toddler_net train: %s (adaptive epochs=%s, last_acc=%s)",
+                            gid, status, _ep, _acc)
+                summary_lines.append(f"- toddler_net[{gid}]: {status} (epochs={_ep})")
         except Exception as e:
             logger.warning("toddler_net train skipped: %s", e)
 
@@ -1922,6 +1929,13 @@ def main():
                 walls_by_game.setdefault(w["game"], []).append(w)
             probe_fn = _make_evolve_probe(BFSSolver, args.bfs_timeout)
             eval_fn = evolve.config_aware_eval_fn(cur_rhae, walls_by_game, probe_fn)
+            # R7(b) action-frugality tie-break (DREAMTEAM 2605.09650, 31% fewer env-actions):
+            # feed the SAME live wall probe as a cost_fn so a challenger that TIES held-out
+            # RHAE but solves the walls in STRICTLY fewer env-actions still PROMOTES(frugal).
+            # Degrades inert offline — with probe_fn None (V21_EVOLVE_PROBE off) config_aware_cost_fn
+            # returns 0.0 for every config, so best_cost==cc and the frugal branch can never fire;
+            # nothing promotes on noise. The generalization + strict-RHAE gates are untouched.
+            cost_fn = evolve.config_aware_cost_fn(walls_by_game, probe_fn)
             # C1+++ END-OF-SWEEP STALL GUARD: evolve_step drives the SAME local ollama
             # code-writer that wedged run 164123Z's RUNTIME_CODER (fixed by C1++). But
             # evolve is the LAST stage, and C1++ only wrapped RUNTIME_CODER — so if the
@@ -1939,7 +1953,7 @@ def main():
                 lambda: evolve.evolve_step(
                     os.path.join(HERE, "champion.json"),
                     os.path.join(LOGDIR, "evolution_history.jsonl"),
-                    walls, cur_rhae, llm, eval_fn, games, heldout, n=4),
+                    walls, cur_rhae, llm, eval_fn, games, heldout, n=4, cost_fn=cost_fn),
                 _evo_budget)
             probe_note = "live-probe" if probe_fn else "corpus-floor"
             summary_lines.append(
